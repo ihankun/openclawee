@@ -20,21 +20,11 @@ import type { PluginRegistry } from "../plugins/registry.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import type { PluginServiceCronHost } from "../plugins/service-cron.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
-import { runWithGatewayIndependentRootWorkAdmission } from "../process/gateway-work-admission.js";
-import { sweepSessionStateWatchNotices } from "../sessions/session-state-events.js";
-import { createDeferredCore } from "../shared/deferred.js";
-import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
-import {
-  canReadDetailedUpdateMetadata,
-  GATEWAY_EVENT_UPDATE_AVAILABLE,
-  projectUpdateAvailable,
-  type GatewayUpdateAvailableEventPayload,
-} from "./events.js";
-import type { GatewayBroadcastToConnIdsFn } from "./server-broadcast-types.js";
-import type { GatewayControlUiRootLifecycle } from "./server-control-ui-root.js";
-import type { GatewayRecoveryRuntime } from "./server-instance-runtime.types.js";
-import type { GatewayClient, GatewayContextResolver } from "./server-methods/shared-types.js";
-import type { GatewayPluginRuntimeClaim } from "./server-plugin-runtime-generation.js";
+// import {
+//   GATEWAY_EVENT_UPDATE_AVAILABLE,
+//   type GatewayUpdateAvailableEventPayload,
+// } from "./events.js";
+import { STARTUP_UNAVAILABLE_GATEWAY_METHODS } from "./methods/core-descriptors.js";
 import type { refreshLatestUpdateRestartSentinel } from "./server-restart-sentinel.js";
 import type { GatewaySidecarStartupMode } from "./server-sidecar-startup-mode.js";
 import { scheduleContextCachePrewarm } from "./server-startup-context-cache-prewarm.js";
@@ -888,7 +878,7 @@ const defaultGatewayPostAttachRuntimeDeps: GatewayPostAttachRuntimeDeps = {
     (await import("../agents/subagents/registry/subagent-registry.js")).activateSubagentRegistry,
 };
 
-function createDeferredGatewayUpdateCheck(params: {
+function createDeferredGatewayUpdateCheck(_params: {
   startupTrace?: GatewayStartupTrace;
   runtimeDeps: GatewayPostAttachRuntimeDeps;
   getConfig: () => OpenClawConfig;
@@ -949,78 +939,39 @@ function createDeferredGatewayUpdateCheck(params: {
     if (ownerReady || stopped) {
       return;
     }
-    runWatcher = startUpdateRunWatcher({
-      broadcast: (event, payload) =>
-        params.broadcastToConnIds(event, payload, params.getClientConnIds()),
-      log: params.log,
-    });
-    ownerReady = (async () => {
-      try {
-        owner = await params.runtimeDeps.createGatewayUpdateCheck({
-          getConfig: params.getConfig,
-          onUpdateRunCreated: wakeUpdateRunWatcher,
-          log: params.log,
-          isNixMode: params.isNixMode,
-          ...(params.activeWorkInspectors
-            ? { activeWorkInspectors: params.activeWorkInspectors }
-            : {}),
-          onUpdateAvailableChange: (updateAvailable) => {
-            latestUpdateAvailable = updateAvailable;
-            const payload: GatewayUpdateAvailableEventPayload = {
-              updateAvailable,
-              ...(latestSchedule ? { schedule: latestSchedule } : {}),
-            };
-            broadcastUpdateAvailable(payload);
-          },
-          onUpdateScheduleChange: (schedule) => {
-            latestSchedule = schedule;
-            const payload: GatewayUpdateAvailableEventPayload = {
-              updateAvailable: latestUpdateAvailable,
-              schedule,
-            };
-            broadcastUpdateAvailable(payload);
-          },
-        });
-      } catch (err) {
-        if (!stopped) {
-          params.log.warn(`gateway update check failed to initialize: ${String(err)}`);
-        }
-        return;
-      }
-      if (stopped) {
-        await owner.stop();
-        return;
-      }
-      // Local identity is ready before channel selection; remote discovery
-      // stays post-ready, but both already have the same shutdown owner.
-      const updateCheck = owner;
-      initialization = (async () => updateCheck.initialize())().catch((err: unknown) => {
-        if (!stopped) {
-          params.log.warn(`gateway update status failed to initialize: ${String(err)}`);
-        }
-      });
-    })();
-    void ownerReady.catch(() => {});
-    void (async () => {
-      await params.waitForPostReadyWork?.();
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      await ownerReady;
-      if (!stopped) {
-        await runWithGatewayIndependentRootWorkAdmission(
-          async () =>
-            await measureStartup(params.startupTrace, "post-attach.update-check", () =>
-              owner?.start(),
-            ),
-          "startup:update-check",
-        );
-      }
-    })().catch((err: unknown) => {
-      if (!stopped) {
-        params.log.warn(`gateway update check readiness wait failed: ${String(err)}`);
-      }
-    });
+    started = true;
+    // Startup version check disabled (commented out on request).
+    // Update checks are intentionally post-attach so startup logging, sidecars,
+    // and Tailscale exposure are not serialized behind network I/O.
+    // setImmediate(() => {
+    //   if (stopped) {
+    //     return;
+    //   }
+    //   void measureStartup(params.startupTrace, "post-attach.update-check", () =>
+    //     params.runtimeDeps.scheduleGatewayUpdateCheck({
+    //       cfg: params.cfg,
+    //       log: params.log,
+    //       isNixMode: params.isNixMode,
+    //       onUpdateAvailableChange: (updateAvailable) => {
+    //         const payload: GatewayUpdateAvailableEventPayload = { updateAvailable };
+    //         params.broadcast(GATEWAY_EVENT_UPDATE_AVAILABLE, payload, { dropIfSlow: true });
+    //       },
+    //     }),
+    //   )
+    //     .then((nextStop) => {
+    //       if (stopped) {
+    //         nextStop();
+    //         return;
+    //       }
+    //       stopUpdateCheck = nextStop;
+    //     })
+    //     .catch((err: unknown) => {
+    //       if (stopped) {
+    //         return;
+    //       }
+    //       params.log.warn(`gateway update check failed to start: ${String(err)}`);
+    //     });
+    // });
   };
 
   return { start, stop };

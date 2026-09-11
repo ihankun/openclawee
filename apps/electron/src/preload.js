@@ -23,6 +23,18 @@ const electronAPI = {
   /** Run setup command (for first-time initialization). */
   runSetup: () => ipcRenderer.invoke("run-setup"),
 
+  /** Run setup command with custom args array. */
+  runSetupWithArgs: (args) => ipcRenderer.invoke("run-setup-args", args),
+
+  /** Write provider config directly to openclaw.json. */
+  writeProviderConfig: (provider, apiKey) => ipcRenderer.invoke("write-provider-config", { provider, apiKey }),
+
+  /** Write channel config to openclaw.json. */
+  writeChannelConfig: (channels) => ipcRenderer.invoke("write-channel-config", channels),
+
+  /** Write skill config to openclaw.json. */
+  writeSkillConfig: (skills) => ipcRenderer.invoke("write-skill-config", skills),
+
   /** Notify that setup is complete. */
   notifySetupComplete: () => ipcRenderer.send("setup-complete"),
 
@@ -49,6 +61,13 @@ const electronAPI = {
     return () => ipcRenderer.removeListener("gateway:exited", handler);
   },
 
+  /** Listen for gateway-progress event (startup stages). Returns unsubscribe function. */
+  onGatewayProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("gateway:progress", handler);
+    return () => ipcRenderer.removeListener("gateway:progress", handler);
+  },
+
   /** Minimize the window. */
   minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
 
@@ -67,6 +86,9 @@ const electronAPI = {
 
   /** Detect if running inside Electron. */
   isElectron: () => true,
+
+  /** Current platform (e.g. "win32", "darwin", "linux"). */
+  platform: () => process.platform,
 
   /** Get the gateway URL. */
   getGatewayUrl: () => "http://127.0.0.1:18789",

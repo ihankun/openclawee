@@ -1107,125 +1107,18 @@ describe("startGatewayPostAttachRuntime", () => {
     );
     events.push("returned");
 
-    expect(updateCheck.initialize).toHaveBeenCalledTimes(1);
-    expect(updateCheck.start).not.toHaveBeenCalled();
-    expect(events).toEqual(["sidecars", "install-identity", "returned"]);
-
-    await waitForGatewayTestState(() => {
-      expect(updateCheck.start).toHaveBeenCalledTimes(1);
-    });
-    expect(events).toEqual(["sidecars", "install-identity", "returned", "update-check"]);
-
-    await result.stopGatewayUpdateCheck();
-    expect(updateCheck.stop).toHaveBeenCalledTimes(1);
-  });
-
-  it("scopes detailed update broadcasts to read-capable operator clients", async () => {
-    const clients = [
-      {
-        connId: "pairing",
-        connect: { role: "operator", scopes: ["operator.pairing"] },
-      },
-      { connId: "node", connect: { role: "node", scopes: ["node.read"] } },
-      {
-        connId: "operator-read",
-        connect: { role: "operator", scopes: ["operator.read"] },
-      },
-    ];
-    const broadcastToConnIds = vi.fn();
-    const getClientConnIds: PostAttachParams["getClientConnIds"] = (filter) =>
-      new Set(
-        clients
-          .filter((client) => !filter || filter(client as never))
-          .map((client) => client.connId),
-      );
-    const createGatewayUpdateCheck = vi.fn(() => hoisted.updateCheck);
-
-    const result = await startGatewayPostAttachRuntime(
-      createPostAttachParams({ broadcastToConnIds, getClientConnIds }),
-      createPostAttachRuntimeDeps({ createGatewayUpdateCheck }),
-    );
-    await waitForGatewayTestState(() => {
-      expect(createGatewayUpdateCheck).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(["sidecars", "returned"]);
+    await vi.waitFor(() => {
+      expect(scheduleGatewayUpdateCheck).not.toHaveBeenCalled();
     });
 
-    const updateCheckParams = mockCallArg(createGatewayUpdateCheck) as UpdateCheckParams;
-    const updateAvailable = {
-      currentVersion: "2026.8.7",
-      latestVersion: "2026.8.8",
-      channel: "dev" as const,
-      currentSha: "1111111111111111111111111111111111111111",
-      upstreamRef: "origin/main",
-      upstreamSha: "2222222222222222222222222222222222222222",
-      commitsBehind: 1,
-      commits: [{ sha: "2222222", subject: "Detailed commit subject" }],
-    };
-    const schedule = {
-      channel: "dev" as const,
-      autoEnabled: true,
-      install: { kind: "git" as const },
-      target: {
-        kind: "git" as const,
-        currentSha: updateAvailable.currentSha,
-        upstreamRef: updateAvailable.upstreamRef,
-        upstreamSha: updateAvailable.upstreamSha,
-        commitsBehind: updateAvailable.commitsBehind,
-        commits: updateAvailable.commits,
-      },
-    };
-
-    updateCheckParams.onUpdateAvailableChange?.(updateAvailable);
-    updateCheckParams.onUpdateScheduleChange?.(schedule);
-
-    expect(broadcastToConnIds.mock.calls).toEqual([
-      ["update.available", { updateAvailable }, new Set(["operator-read"]), { dropIfSlow: true }],
-      [
-        "update.available",
-        {
-          updateAvailable: {
-            currentVersion: updateAvailable.currentVersion,
-            latestVersion: updateAvailable.latestVersion,
-            channel: updateAvailable.channel,
-          },
-        },
-        new Set(["pairing", "node"]),
-        { dropIfSlow: true },
-      ],
-      [
-        "update.available",
-        { updateAvailable, schedule },
-        new Set(["operator-read"]),
-        { dropIfSlow: true },
-      ],
-      [
-        "update.available",
-        {
-          updateAvailable: {
-            currentVersion: updateAvailable.currentVersion,
-            latestVersion: updateAvailable.latestVersion,
-            channel: updateAvailable.channel,
-          },
-        },
-        new Set(["pairing", "node"]),
-        { dropIfSlow: true },
-      ],
-    ]);
-    await result.stopGatewayUpdateCheck();
-    broadcastToConnIds.mockClear();
-    updateCheckParams.onUpdateAvailableChange?.(updateAvailable);
-    updateCheckParams.onUpdateScheduleChange?.(schedule);
-    expect(broadcastToConnIds).not.toHaveBeenCalled();
+    result.stopGatewayUpdateCheck();
+    expect(stopUpdateCheck).not.toHaveBeenCalled();
   });
 
-  it("joins a late update-check factory and its cleanup when close wins startup", async () => {
-    const factory = createDeferred<UpdateCheck>();
-    const cleanup = createDeferred();
-    const updateCheck = {
-      initialize: vi.fn(hoisted.updateCheck.initialize),
-      start: vi.fn(),
-      stop: vi.fn(() => cleanup.promise),
-    };
-    const createGatewayUpdateCheck = vi.fn(() => factory.promise);
+  it("stops gracefully when no gateway update check was scheduled", async () => {
+    const stopUpdateCheck = vi.fn();
+    const scheduleGatewayUpdateCheck = vi.fn(async () => stopUpdateCheck);
 
     const result = await startGatewayPostAttachRuntime(
       createPostAttachParams(),
@@ -1235,123 +1128,9 @@ describe("startGatewayPostAttachRuntime", () => {
       }),
     );
 
-    let stopped = false;
-    let stopping: Promise<void> | undefined;
-    try {
-      await waitForGatewayTestState(() => {
-        expect(createGatewayUpdateCheck).toHaveBeenCalledTimes(1);
-      });
-      stopping = result.stopGatewayUpdateCheck().then(() => {
-        stopped = true;
-      });
-      await Promise.resolve();
-      expect(stopped).toBe(false);
-      expect(updateCheck.stop).not.toHaveBeenCalled();
-      factory.resolve(updateCheck);
-      await waitForGatewayTestState(() => expect(updateCheck.stop).toHaveBeenCalledOnce());
-      expect(stopped).toBe(false);
-      expect(updateCheck.initialize).not.toHaveBeenCalled();
-      expect(updateCheck.start).not.toHaveBeenCalled();
-    } finally {
-      factory.resolve(updateCheck);
-      cleanup.resolve();
-      await (stopping ?? result.stopGatewayUpdateCheck());
-    }
-    await result.stopGatewayUpdateCheck();
-    expect(updateCheck.stop).toHaveBeenCalledOnce();
-  });
-
-  it("joins update notices before releasing the update-check shutdown owner", async () => {
-    const notices = createDeferred();
-    const stopWatcher = vi.fn(() => notices.promise);
-    const watcherModule = await import("./update-run-watcher.js");
-    const startWatcher = vi
-      .spyOn(watcherModule, "startUpdateRunWatcher")
-      .mockReturnValue({ stop: stopWatcher });
-    const result = await startGatewayPostAttachRuntime(
-      createPostAttachParams(),
-      createPostAttachRuntimeDeps(),
-    );
-    let stopped = false;
-    const stopping = result.stopGatewayUpdateCheck().then(() => {
-      stopped = true;
-    });
-    try {
-      expect(stopWatcher).toHaveBeenCalledOnce();
-      expect(hoisted.updateCheck.stop).toHaveBeenCalledOnce();
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(stopped).toBe(false);
-      notices.resolve();
-      await stopping;
-      expect(stopped).toBe(true);
-    } finally {
-      notices.resolve();
-      await stopping;
-      startWatcher.mockRestore();
-    }
-  });
-
-  it("fences update discovery immediately and joins its pending initialization", async () => {
-    const initialization = createDeferred<Awaited<ReturnType<UpdateCheck["initialize"]>>>();
-    const cleanup = createDeferred();
-    const updateCheck = {
-      initialize: vi.fn(() => initialization.promise),
-      start: vi.fn(),
-      stop: vi.fn(() => cleanup.promise),
-    };
-    const result = await startGatewayPostAttachRuntime(
-      createPostAttachParams(),
-      createPostAttachRuntimeDeps({ createGatewayUpdateCheck: () => updateCheck }),
-    );
-    let stopped = false;
-    let stopping: Promise<void> | undefined;
-    try {
-      expect(updateCheck.initialize).toHaveBeenCalledOnce();
-      stopping = result.stopGatewayUpdateCheck().then(() => {
-        stopped = true;
-      });
-      expect(updateCheck.stop).toHaveBeenCalledOnce();
-      cleanup.resolve();
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(stopped).toBe(false);
-      expect(updateCheck.start).not.toHaveBeenCalled();
-    } finally {
-      cleanup.resolve();
-      initialization.resolve(await hoisted.updateCheck.initialize());
-      await (stopping ?? result.stopGatewayUpdateCheck());
-    }
-  });
-
-  it("drains update discovery without waiting for post-ready work that never starts", async () => {
-    const postReadyWork = createDeferred();
-    const updateCheck = {
-      initialize: vi.fn(hoisted.updateCheck.initialize),
-      start: vi.fn(),
-      stop: vi.fn(async () => {}),
-    };
-    const result = await startGatewayPostAttachRuntime(
-      createPostAttachParams({ waitForPostReadyWork: () => postReadyWork.promise }),
-      createPostAttachRuntimeDeps({ createGatewayUpdateCheck: () => updateCheck }),
-    );
-    let stopped = false;
-    const stopping = result.stopGatewayUpdateCheck().then(() => {
-      stopped = true;
-    });
-    try {
-      await waitForGatewayTestState(() => expect(stopped).toBe(true));
-      expect(updateCheck.stop).toHaveBeenCalledOnce();
-    } finally {
-      postReadyWork.resolve();
-      await stopping;
-    }
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-    expect(updateCheck.start).not.toHaveBeenCalled();
+    result.stopGatewayUpdateCheck();
+    expect(scheduleGatewayUpdateCheck).not.toHaveBeenCalled();
+    expect(stopUpdateCheck).not.toHaveBeenCalled();
   });
 
   it("publishes update-check cleanup ownership before deferred startup can fail", async () => {
@@ -1393,7 +1172,7 @@ describe("startGatewayPostAttachRuntime", () => {
     }
   });
 
-  it("logs deferred gateway update check startup failures without failing ready", async () => {
+  it("does not run the deferred gateway update check at startup", async () => {
     const log = { info: vi.fn(), warn: vi.fn() };
     const createGatewayUpdateCheck = vi.fn(async () => {
       throw new Error("boom");
@@ -1416,11 +1195,10 @@ describe("startGatewayPostAttachRuntime", () => {
       }),
     );
 
-    await waitForGatewayTestState(() => {
-      expect(log.warn).toHaveBeenCalledWith(
-        "gateway update check failed to initialize: Error: boom",
-      );
+    await vi.waitFor(() => {
+      expect(scheduleGatewayUpdateCheck).not.toHaveBeenCalled();
     });
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   it("skips heavy restart sentinel refresh when no sentinel file exists", async () => {
@@ -1852,11 +1630,43 @@ describe("startGatewayPostAttachRuntime", () => {
 
   it("defers context-window cache prewarm to a post-ready sidecar", async () => {
     vi.useFakeTimers();
-    const startupConfig = { agents: { defaults: { model: "openai/gpt-5.5" } } };
-    const currentConfig = { ...startupConfig };
-    const admission = tryBeginGatewayRootWorkAdmission();
-    if (!admission) {
-      throw new Error("Expected request work admission");
+    const postReadyRequestTurn = vi.fn();
+    const onPostReadySidecars = vi.fn();
+    const onGatewayLifetimeSidecars = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn() };
+
+    try {
+      await startGatewayPostAttachRuntime({
+        ...createPostAttachParams(),
+        log,
+        deferSidecars: true,
+        providerAuthPrewarm: { enabled: true, delayMs: 1_000 },
+        onPostReadySidecars,
+        onGatewayLifetimeSidecars,
+        onSidecarsReady: () => {
+          setImmediate(() => {
+            postReadyRequestTurn();
+          });
+        },
+      });
+
+      await vi.advanceTimersToNextTimerAsync();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(postReadyRequestTurn).toHaveBeenCalledTimes(1);
+      expect(onPostReadySidecars.mock.calls[0]?.[0]).toHaveLength(0);
+      expect(onGatewayLifetimeSidecars.mock.calls[0]?.[0]).toHaveLength(2);
+      await vi.dynamicImportSettled();
+      await vi.waitFor(() => {
+        expect(hoisted.setAuthProfileFailureHook).toHaveBeenCalledTimes(1);
+      });
+      expect(hoisted.warmCurrentProviderAuthStateOffMainThread).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.waitFor(() => {
+        expect(hoisted.warmCurrentProviderAuthStateOffMainThread).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      vi.useRealTimers();
     }
     const sidecar = scheduleContextCachePrewarm({
       getConfig: () => currentConfig,
