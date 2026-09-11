@@ -150,20 +150,6 @@ function resolveOpenClawEntry() {
   return path.join(resolveProjectRoot(), "openclaw.mjs");
 }
 
-function resolveDevRunnerEntry() {
-  return path.join(resolveProjectRoot(), "scripts", "run-node.mjs");
-}
-
-/**
- * Development builds launch through the repo's dev runner so a stale `dist` is
- * rebuilt by its owner before the Gateway boots. Spawning `openclaw.mjs`
- * directly would serve a runtime whose build identity no longer matches the
- * Control UI assets, which the Gateway rejects.
- */
-function resolveGatewayEntry() {
-  return isDevelopment ? resolveDevRunnerEntry() : resolveOpenClawEntry();
-}
-
 function resolveTrayIcon() {
   // Prefer openclaw-tray.png, fall back to tray-icon.png
   const baseNames = ["openclaw-tray.png", "tray-icon.png"];
@@ -322,7 +308,7 @@ function checkNeedsSetup() {
 
 function runSetupWithArgs(args) {
   try {
-    const entryPath = resolveGatewayEntry();
+    const entryPath = resolveOpenClawEntry();
     const nodePath = resolveNodeBinary();
 
     if (!fs.existsSync(entryPath)) {
@@ -580,7 +566,7 @@ function startGateway() {
   gatewayStarting = true;
   gatewayReady = false;
 
-  const entryPath = resolveGatewayEntry();
+  const entryPath = resolveOpenClawEntry();
   const nodePath = resolveNodeBinary();
 
   if (!fs.existsSync(entryPath)) {
