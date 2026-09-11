@@ -2,23 +2,20 @@ import { PLATFORM_SEND_OWNER_LEASE_MS } from "../delivery-queue-sqlite-claim.js"
 
 const PLATFORM_SEND_OWNER_HEARTBEAT_MS = Math.floor(PLATFORM_SEND_OWNER_LEASE_MS / 3);
 
-type DeliveryProducerLease = {
+export type DeliveryProducerLease = {
   signal: AbortSignal;
   stop: () => void;
 };
 
-class StableDeliveryProducerLeaseLostError extends Error {
-  override name = "StableDeliveryProducerLeaseLostError";
+class DeliveryProducerLeaseLostError extends Error {
+  override name = "DeliveryProducerLeaseLostError";
 }
 
 function lostProducerLeaseError(id: string, cause?: unknown): Error {
-  return new StableDeliveryProducerLeaseLostError(
-    `Stable delivery platform claim was lost: ${id}`,
-    { cause },
-  );
+  return new DeliveryProducerLeaseLostError(`Delivery platform claim was lost: ${id}`, { cause });
 }
 
-/** Maintains one already-acquired stable producer claim during fallible preparation and send. */
+/** Maintains one already-acquired producer claim during fallible preparation and send. */
 export async function startDeliveryProducerLease(params: {
   id: string;
   renew: () => Promise<number | undefined>;
@@ -31,7 +28,7 @@ export async function startDeliveryProducerLease(params: {
     }
     confirmedExpiresAt = initialExpiry;
   } catch (error) {
-    if (error instanceof StableDeliveryProducerLeaseLostError) {
+    if (error instanceof DeliveryProducerLeaseLostError) {
       throw error;
     }
     throw lostProducerLeaseError(params.id, error);

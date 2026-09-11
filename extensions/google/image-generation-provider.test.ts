@@ -23,14 +23,7 @@ function mockGoogleApiKeyAuth() {
   });
 }
 
-function installGoogleFetchMock(params?: {
-  data?: string;
-  mimeType?: string;
-  inlineDataKey?: "inlineData" | "inline_data";
-}) {
-  const mimeType = params?.mimeType ?? "image/png";
-  const data = params?.data ?? "png-data";
-  const inlineDataKey = params?.inlineDataKey ?? "inlineData";
+function installGoogleFetchMock() {
   const fetchMock = vi.fn().mockResolvedValue(
     jsonResponse({
       candidates: [
@@ -38,9 +31,9 @@ function installGoogleFetchMock(params?: {
           content: {
             parts: [
               {
-                [inlineDataKey]: {
-                  [inlineDataKey === "inlineData" ? "mimeType" : "mime_type"]: mimeType,
-                  data: Buffer.from(data).toString("base64"),
+                inlineData: {
+                  mimeType: "image/png",
+                  data: Buffer.from("png-data").toString("base64"),
                 },
               },
             ],
@@ -272,6 +265,72 @@ describe("Google image-generation provider", () => {
             {
               content: {
                 parts: [{ inlineData: { mimeType: "image/png", data: "not-base64!" } }],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const provider = buildGoogleImageGenerationProvider();
+    await expect(
+      provider.generateImage({
+        provider: "google",
+        model: "gemini-3.1-flash-image",
+        prompt: "draw a cat",
+        cfg: {},
+      }),
+    ).rejects.toThrow("Google image generation response malformed");
+  });
+
+  it("accepts URL-safe base64 image bytes", async () => {
+    mockGoogleApiKeyAuth();
+    const imageBytes = Buffer.from([0xfb, 0xff, 0x50, 0x4e, 0x47]);
+    const imageBase64url = imageBytes.toString("base64url");
+    expect(imageBase64url).toMatch(/[-_]/);
+    expect(imageBase64url).not.toMatch(/[+/]/);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "image/png",
+                      data: imageBase64url,
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await buildGoogleImageGenerationProvider().generateImage({
+      provider: "google",
+      model: "gemini-3.1-flash-image",
+      prompt: "draw a cat",
+      cfg: {},
+    });
+
+    expect(result.images[0]?.buffer).toEqual(imageBytes);
+  });
+
+  it("rejects mixed-alphabet inline image data", async () => {
+    mockGoogleApiKeyAuth();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          candidates: [
+            {
+              content: {
+                parts: [{ inlineData: { mimeType: "image/png", data: "aGVsbG8+_" } }],
               },
             },
           ],

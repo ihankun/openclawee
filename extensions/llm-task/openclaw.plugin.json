@@ -1,5 +1,9 @@
 {
   "id": "llm-task",
+  "categories": ["tools"],
+  "doctorContract": {
+    "configRepair": true
+  },
   "activation": {
     "onStartup": true
   },

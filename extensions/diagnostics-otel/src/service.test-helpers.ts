@@ -1,7 +1,12 @@
+import { createServer, type IncomingHttpHeaders } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
+  createChildDiagnosticTraceContext,
+  createDiagnosticTraceContext,
   emitTrustedDiagnosticEventWithPrivateData,
   type DiagnosticEventPayload,
   type DiagnosticTraceContext,
+  waitForDiagnosticEventsDrained,
 } from "openclaw/plugin-sdk/diagnostic-runtime";
 import {
   onTrustedInternalDiagnosticEvent,
@@ -28,6 +33,48 @@ export const MODEL_FIXTURE = {
 } as const;
 export const RUN_FIXTURE = { runId: "run-1", ...MODEL_FIXTURE } as const;
 export const MODEL_CALL_FIXTURE = { ...RUN_FIXTURE, callId: "call-1" } as const;
+
+const emit = (event: Parameters<typeof emitTrustedDiagnosticEventWithPrivateData>[0]) =>
+  emitTrustedDiagnosticEventWithPrivateData(event, {});
+
+export async function emitRealSdkSignals(generation = "1") {
+  // Owned mode keeps trace and metric providers private to the service, so the
+  // global API is a no-op there. Emit through the diagnostic event recorders,
+  // which create real SDK spans and metrics via the service's private handles.
+  const traceContext = createDiagnosticTraceContext();
+  const modelTraceContext = createChildDiagnosticTraceContext(traceContext);
+  const run = { ...RUN_FIXTURE, runId: `run-${generation}` };
+  emit({ type: "run.started", ...run, trace: traceContext });
+  emit({
+    type: "model.call.started",
+    ...run,
+    callId: `call-${generation}`,
+    trace: modelTraceContext,
+  });
+  emit({
+    type: "model.call.completed",
+    ...run,
+    callId: `call-${generation}`,
+    durationMs: 10,
+    usage: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, total: 8 },
+    trace: modelTraceContext,
+  });
+  emit({
+    type: "log.record",
+    level: "INFO",
+    message: `OTLP routing test ${generation}`,
+    trace: traceContext,
+  });
+  emit({
+    type: "run.completed",
+    ...run,
+    outcome: "completed",
+    durationMs: 25,
+    trace: traceContext,
+  });
+  await waitForDiagnosticEventsDrained();
+  return traceContext;
+}
 type OtelConfig = NonNullable<
   NonNullable<OpenClawPluginServiceContext["config"]["diagnostics"]>["otel"]
 >;
@@ -168,6 +215,43 @@ export async function stopStartedOtelServices() {
   const services = [...startedServices];
   startedServices.clear();
   await Promise.all(services.map(({ service, ctx }) => Promise.resolve(service.stop?.(ctx))));
+}
+
+export async function startOtlpReceiver() {
+  const requests: Array<{
+    contentType: string | undefined;
+    headers: IncomingHttpHeaders;
+    method: string | undefined;
+    url: string;
+  }> = [];
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      requests.push({
+        contentType: request.headers["content-type"],
+        headers: request.headers,
+        method: request.method,
+        url: request.url ?? "",
+      });
+      response.writeHead(200, { "content-type": "application/x-protobuf" });
+      response.end();
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+  return {
+    endpoint: `http://127.0.0.1:${port}`,
+    requests,
+    async close() {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeIdleConnections();
+      });
+    },
+  };
 }
 
 export function createTestTrace(spanId: string, parentSpanId?: string): DiagnosticTraceContext {

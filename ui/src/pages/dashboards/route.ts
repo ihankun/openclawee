@@ -2,28 +2,23 @@ import { definePage } from "@openclaw/uirouter";
 import { html } from "lit";
 import { routePageSpec } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
-import { DEFAULT_SESSION_LIST_QUERY } from "../../lib/sessions/index.ts";
+import type { SessionListOptions, SessionListSnapshot } from "../../lib/sessions/index.ts";
 import { resolveSessionNavigationAgentId } from "../../lib/sessions/route-navigation.ts";
 import { resolveUiConfiguredMainKey } from "../../lib/sessions/session-key.ts";
+import { dashboardSessionListQuery as dashboardSessionListQueryForAgent } from "../../lib/sessions/session-requests.ts";
 import type { DashboardsRouteData } from "./view.ts";
 
-async function loadDashboardsRoute(context: ApplicationContext): Promise<DashboardsRouteData> {
-  const result = await context.sessions
-    .list({
-      ...DEFAULT_SESSION_LIST_QUERY,
-      boardFace: "dashboard",
-      archivedFilter: "all",
-      ...(context.agentSelection.state.scopeId
-        ? { agentId: context.agentSelection.state.scopeId }
-        : {}),
-    })
-    .then(
-      (value) => ({ value, error: null }),
-      (error: unknown) => ({ value: null, error: String(error) }),
-    );
+export function dashboardSessionListQuery(context: ApplicationContext): SessionListOptions {
+  return dashboardSessionListQueryForAgent(context.agentSelection.state.scopeId);
+}
+
+export function dashboardsRouteData(
+  context: ApplicationContext,
+  snapshot: SessionListSnapshot,
+): DashboardsRouteData {
   return {
-    result: result.value,
-    error: result.error,
+    result: snapshot.result,
+    error: snapshot.error,
     basePath: context.basePath,
     fallbackAgentId: resolveSessionNavigationAgentId(context),
     mainKey: resolveUiConfiguredMainKey({
@@ -33,14 +28,23 @@ async function loadDashboardsRoute(context: ApplicationContext): Promise<Dashboa
   };
 }
 
+async function loadDashboardsRoute(context: ApplicationContext): Promise<DashboardsRouteData> {
+  const query = dashboardSessionListQuery(context);
+  let snapshot = context.sessions.listSnapshot(query);
+  if (!snapshot.result && !snapshot.loading) {
+    await context.sessions.refreshList({ ...query, force: true });
+    snapshot = context.sessions.listSnapshot(query);
+  }
+  return dashboardsRouteData(context, snapshot);
+}
+
 export const page = definePage({
   ...routePageSpec("dashboards"),
-  loaderDeps: (context: ApplicationContext) =>
-    `${context.agentSelection.state.scopeId ?? "all"}\u0000${context.sessions.canonicalListRevision}`,
-  loader: (context: ApplicationContext) => loadDashboardsRoute(context),
+  loader: loadDashboardsRoute,
   component: () =>
-    import("./view.ts").then(({ renderDashboards }) => ({
+    import("./dashboards-page.ts").then(() => ({
       header: true,
-      render: (data: DashboardsRouteData | undefined) => html`${renderDashboards(data)}`,
+      render: (data: DashboardsRouteData | undefined) =>
+        html`<openclaw-dashboards-page .routeData=${data}></openclaw-dashboards-page>`,
     })),
 });

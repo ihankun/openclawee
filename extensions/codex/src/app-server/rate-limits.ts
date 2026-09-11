@@ -13,7 +13,12 @@ import {
   type ProviderUsageSnapshot,
   type UsageWindow,
 } from "openclaw/plugin-sdk/provider-usage";
-import { asFiniteNumber, parseStrictFiniteNumber } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  asBoolean,
+  asFiniteNumber,
+  normalizeOptionalString,
+  parseStrictFiniteNumber,
+} from "openclaw/plugin-sdk/string-coerce-runtime";
 import { isJsonObject, type JsonObject, type JsonValue } from "./protocol.js";
 
 const CODEX_LIMIT_ID = "codex";
@@ -61,7 +66,7 @@ export function formatCodexUsageLimitErrorMessage(params: {
   rateLimitsAuthoritative?: boolean;
   nowMs?: number;
 }): string | undefined {
-  const message = normalizeText(params.message);
+  const message = normalizeOptionalString(params.message);
   if (!isCodexUsageLimitError(params.codexErrorInfo)) {
     return undefined;
   }
@@ -108,7 +113,7 @@ export function formatCodexUsageLimitErrorMessage(params: {
 export function shouldRefreshCodexRateLimitsForUsageLimitMessage(
   message: string | null | undefined,
 ): boolean {
-  const text = normalizeText(message);
+  const text = normalizeOptionalString(message);
   // Only our formatted prefix is a refresh contract. Provider prose alone is
   // not structural evidence of a Codex usage-limit failure.
   return Boolean(
@@ -211,18 +216,46 @@ export function summarizeCodexAccountUsage(
 }
 
 /** Converts Codex app-server rate-limit payloads into OpenAI/Codex usage windows. */
-export function buildCodexAppServerUsageSnapshot(value: unknown): ProviderUsageSnapshot {
+export function buildCodexAppServerUsageSnapshot(
+  value: unknown,
+  options: { accountDetails?: boolean } = {},
+): ProviderUsageSnapshot {
   const snapshot = selectCodexProviderUsageSnapshot(value);
   const entries = snapshot ? readWindowEntries(snapshot) : [];
   const windows = entries
     .map((entry) => readProviderUsageWindow(entry, entries))
     .filter((window): window is UsageWindow => Boolean(window));
-  return {
+  const result: ProviderUsageSnapshot = {
     provider: "openai",
     displayName: PROVIDER_LABELS.openai,
     windows,
     ...(snapshot ? { plan: resolveCodexProviderUsagePlan(snapshot) } : {}),
   };
+  if (options.accountDetails && snapshot) {
+    result.plan =
+      normalizeOptionalString(snapshot.planType) ?? normalizeOptionalString(snapshot.plan_type);
+    for (const extra of collectCodexRateLimitSnapshots(value)) {
+      if (extra === snapshot) {
+        continue;
+      }
+      const extraEntries = readWindowEntries(extra);
+      for (const entry of extraEntries) {
+        const window = readProviderUsageWindow(entry, extraEntries);
+        if (window) {
+          windows.push({ ...window, groupLabel: formatLimitLabel(extra) });
+        }
+      }
+    }
+    const credits = isJsonObject(snapshot.credits) ? snapshot.credits : undefined;
+    const balance =
+      typeof credits?.balance === "string"
+        ? parseStrictFiniteNumber(credits.balance)
+        : asFiniteNumber(credits?.balance);
+    if (balance !== undefined && balance >= 0 && credits?.unlimited !== true) {
+      result.billing = [{ type: "balance", amount: balance, unit: "credits" }];
+    }
+  }
+  return result;
 }
 
 function isCodexUsageLimitError(codexErrorInfo: JsonValue | null | undefined): boolean {
@@ -274,7 +307,8 @@ function summarizeRateLimitSnapshot(snapshot: JsonObject, nowMs: number): string
     return window ? [formatRateLimitWindow(key, window, nowMs)] : [];
   });
   const reachedType =
-    readString(snapshot, "rateLimitReachedType") ?? readString(snapshot, "rate_limit_reached_type");
+    normalizeOptionalString(snapshot.rateLimitReachedType) ??
+    normalizeOptionalString(snapshot.rate_limit_reached_type);
   const suffix = reachedType ? ` (${formatReachedType(reachedType)})` : "";
   if (windows.length > 0) {
     return `${label}: ${windows.join(" · ")}${suffix}`;
@@ -285,7 +319,7 @@ function summarizeRateLimitSnapshot(snapshot: JsonObject, nowMs: number): string
   return undefined;
 }
 
-function collectCodexRateLimitSnapshots(value: JsonValue | undefined): JsonObject[] {
+function collectCodexRateLimitSnapshots(value: unknown): JsonObject[] {
   const snapshots: JsonObject[] = [];
   const seen = new Set<string>();
   collectRateLimitSnapshots(value, snapshots, seen);
@@ -293,7 +327,7 @@ function collectCodexRateLimitSnapshots(value: JsonValue | undefined): JsonObjec
 }
 
 function collectRateLimitSnapshots(
-  value: JsonValue | undefined,
+  value: unknown,
   snapshots: JsonObject[],
   seen: Set<string>,
 ): void {
@@ -346,8 +380,10 @@ function addRateLimitSnapshot(
   seen: Set<string>,
 ): void {
   const signature = [
-    readNullableString(snapshot, "limitId") ?? readNullableString(snapshot, "limit_id") ?? "",
-    readNullableString(snapshot, "limitName") ?? readNullableString(snapshot, "limit_name") ?? "",
+    normalizeOptionalString(snapshot.limitId) ?? normalizeOptionalString(snapshot.limit_id) ?? "",
+    normalizeOptionalString(snapshot.limitName) ??
+      normalizeOptionalString(snapshot.limit_name) ??
+      "",
     formatWindowSignature(snapshot.primary),
     formatWindowSignature(snapshot.secondary),
   ].join("|");
@@ -379,7 +415,7 @@ function readRateLimitWindow(
   if (!isJsonObject(window)) {
     return undefined;
   }
-  const resetsAt = readNumber(window, "resetsAt") ?? readNumber(window, "resets_at");
+  const resetsAt = asFiniteNumber(window.resetsAt) ?? asFiniteNumber(window.resets_at);
   const resetsAtMs =
     resolveExpiresAtMsFromEpochSeconds(resetsAt, { maxMs: MAX_DATE_TIMESTAMP_MS }) ?? 0;
   return {
@@ -397,8 +433,8 @@ function readRateLimitWindow(
 
 function snapshotHasDisplayableData(snapshot: JsonObject): boolean {
   if (
-    readString(snapshot, "rateLimitReachedType") ??
-    readString(snapshot, "rate_limit_reached_type")
+    normalizeOptionalString(snapshot.rateLimitReachedType) ??
+    normalizeOptionalString(snapshot.rate_limit_reached_type)
   ) {
     return true;
   }
@@ -411,7 +447,7 @@ function readOptionalNumberField(
   record: JsonObject,
   ...keys: string[]
 ): { usedPercent?: number; windowDurationMins?: number } {
-  const value = keys.map((key) => readNumber(record, key)).find((entry) => entry !== undefined);
+  const value = keys.map((key) => asFiniteNumber(record[key])).find((entry) => entry !== undefined);
   if (value === undefined) {
     return {};
   }
@@ -436,10 +472,10 @@ function formatRateLimitWindowDetails(window: RateLimitReset, nowMs: number): st
 
 function formatLimitLabel(snapshot: JsonObject): string {
   const label =
-    readNullableString(snapshot, "limitName") ??
-    readNullableString(snapshot, "limit_name") ??
-    readNullableString(snapshot, "limitId") ??
-    readNullableString(snapshot, "limit_id");
+    normalizeOptionalString(snapshot.limitName) ??
+    normalizeOptionalString(snapshot.limit_name) ??
+    normalizeOptionalString(snapshot.limitId) ??
+    normalizeOptionalString(snapshot.limit_id);
   if (!label || label === CODEX_LIMIT_ID) {
     return "Codex";
   }
@@ -465,8 +501,8 @@ function formatAccountResetTime(resetsAtMs: number, nowMs: number): string {
 
 function snapshotHasLimitBlock(snapshot: JsonObject): boolean {
   return Boolean(
-    readString(snapshot, "rateLimitReachedType") ??
-    readString(snapshot, "rate_limit_reached_type") ??
+    normalizeOptionalString(snapshot.rateLimitReachedType) ??
+    normalizeOptionalString(snapshot.rate_limit_reached_type) ??
     readWindowEntries(snapshot).some(
       (entry) => entry.window.usedPercent !== undefined && entry.window.usedPercent >= 100,
     ),
@@ -474,12 +510,13 @@ function snapshotHasLimitBlock(snapshot: JsonObject): boolean {
 }
 
 function isCodexLimitSnapshot(snapshot: JsonObject): boolean {
-  const id = readNullableString(snapshot, "limitId") ?? readNullableString(snapshot, "limit_id");
+  const id =
+    normalizeOptionalString(snapshot.limitId) ?? normalizeOptionalString(snapshot.limit_id);
   return !id || id === CODEX_LIMIT_ID;
 }
 
 function selectCodexProviderUsageSnapshot(value: unknown): JsonObject | undefined {
-  const snapshots = collectCodexRateLimitSnapshots(value as JsonValue | undefined);
+  const snapshots = collectCodexRateLimitSnapshots(value);
   return snapshots.find(isCodexLimitSnapshot) ?? snapshots[0];
 }
 
@@ -522,7 +559,8 @@ function formatProviderUsageWindowLabel(
 }
 
 function resolveCodexProviderUsagePlan(snapshot: JsonObject): string | undefined {
-  const plan = readString(snapshot, "planType") ?? readString(snapshot, "plan_type");
+  const plan =
+    normalizeOptionalString(snapshot.planType) ?? normalizeOptionalString(snapshot.plan_type);
   const credits = isJsonObject(snapshot.credits) ? snapshot.credits : undefined;
   const creditSummary = formatCodexCreditSummary(credits);
   if (!creditSummary) {
@@ -535,11 +573,11 @@ function formatCodexCreditSummary(credits: JsonObject | undefined): string | und
   if (!credits) {
     return undefined;
   }
-  const hasCredits = readBoolean(credits, "hasCredits") ?? readBoolean(credits, "has_credits");
+  const hasCredits = asBoolean(credits.hasCredits) ?? asBoolean(credits.has_credits);
   if (hasCredits === false) {
     return undefined;
   }
-  if (readBoolean(credits, "unlimited")) {
+  if (asBoolean(credits.unlimited)) {
     return "Unlimited credits";
   }
   const balance =
@@ -745,8 +783,8 @@ function formatWindowSignature(value: JsonValue | undefined): string {
   if (!isJsonObject(value)) {
     return "";
   }
-  return `${readNumber(value, "usedPercent") ?? readNumber(value, "used_percent") ?? ""}:${
-    readNumber(value, "resetsAt") ?? readNumber(value, "resets_at") ?? ""
+  return `${asFiniteNumber(value.usedPercent) ?? asFiniteNumber(value.used_percent) ?? ""}:${
+    asFiniteNumber(value.resetsAt) ?? asFiniteNumber(value.resets_at) ?? ""
   }`;
 }
 
@@ -764,26 +802,4 @@ function extractCodexRetryHint(message: string | undefined): string | undefined 
   return tryAgainRelative?.[1]?.trim();
 }
 
-function readString(record: JsonObject, key: string): string | undefined {
-  const value = record[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function readNullableString(record: JsonObject, key: string): string | undefined {
-  return readString(record, key) ?? undefined;
-}
-
-function readNumber(record: JsonObject, key: string): number | undefined {
-  return asFiniteNumber(record[key]);
-}
-
-function readBoolean(record: JsonObject, key: string): boolean | undefined {
-  const value = record[key];
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function normalizeText(value: string | null | undefined): string | undefined {
-  const text = value?.trim();
-  return text ? text : undefined;
-}
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

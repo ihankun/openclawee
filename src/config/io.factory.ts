@@ -1,12 +1,12 @@
 import { createConfigIoContext } from "./io.context.js";
 import { loadConfigFromContext } from "./io.load.js";
 import {
-  preserveConfigSnapshotAsClobbered,
-  promoteConfigSnapshotToLastKnownGood,
-  recoverConfigFromLastKnownGood,
+  promoteConfigSnapshotToLastKnownGoodCore,
+  recoverConfigFromLastKnownGoodCore,
 } from "./io.observe-recovery.js";
 import { recoverConfigFromJsonRootSuffixWithContext } from "./io.recovery.js";
 import {
+  prepareConfigRecoveryFromContext,
   readBestEffortConfigSnapshotFromContext,
   readConfigFileSnapshotForWriteFromContext,
   readConfigFileSnapshotFromContext,
@@ -15,8 +15,9 @@ import {
   readSourceConfigBestEffortFromContext,
 } from "./io.snapshot.js";
 import type { ConfigIoFactoryOptions, ConfigSnapshotReadOptions } from "./io.types.js";
-import { writeConfigFileFromContext } from "./io.write.js";
+import type { writeConfigFileFromContext } from "./io.write.js";
 import type { ConfigFileSnapshot } from "./types.js";
+import { withConfigWriteLock } from "./write-lock.js";
 
 export function createConfigIO(options: ConfigIoFactoryOptions = {}) {
   const context = createConfigIoContext(options);
@@ -24,6 +25,7 @@ export function createConfigIO(options: ConfigIoFactoryOptions = {}) {
   return {
     configPath: context.configPath,
     env: context.deps.env,
+    logger: context.deps.logger,
     loadConfig: (loadOptions?: { skipSuspiciousRecovery?: boolean }) =>
       loadConfigFromContext(context, loadOptions),
     readBestEffortConfig: async () =>
@@ -35,25 +37,33 @@ export function createConfigIO(options: ConfigIoFactoryOptions = {}) {
     readConfigFileSnapshotWithPluginMetadata: (readOptions: ConfigSnapshotReadOptions = {}) =>
       readConfigFileSnapshotWithPluginMetadataFromContext(context, readOptions),
     readConfigFileSnapshotForWrite: () => readConfigFileSnapshotForWriteFromContext(context),
+    prepareConfigRecovery: (current: ConfigFileSnapshot) =>
+      prepareConfigRecoveryFromContext(context, current),
     promoteConfigSnapshotToLastKnownGood: (snapshot: ConfigFileSnapshot) =>
-      promoteConfigSnapshotToLastKnownGood({
+      promoteConfigSnapshotToLastKnownGoodCore({
         deps: context.deps,
         snapshot,
         logger: context.deps.logger,
       }),
     recoverConfigFromLastKnownGood: (params: { snapshot: ConfigFileSnapshot; reason: string }) =>
-      recoverConfigFromLastKnownGood({
+      recoverConfigFromLastKnownGoodCore({
         deps: context.deps,
         snapshot: params.snapshot,
         reason: params.reason,
+        prepareCandidate: context.prepareRecoveryBackupCandidate,
       }),
-    preserveConfigSnapshotAsClobbered: (snapshot: ConfigFileSnapshot) =>
-      preserveConfigSnapshotAsClobbered({ deps: context.deps, snapshot }),
     recoverConfigFromJsonRootSuffix: (snapshot: ConfigFileSnapshot) =>
       recoverConfigFromJsonRootSuffixWithContext(context, snapshot),
-    writeConfigFile: (
+    writeConfigFile: async (
       config: Parameters<typeof writeConfigFileFromContext>[1],
       writeOptions: Parameters<typeof writeConfigFileFromContext>[2] = {},
-    ) => writeConfigFileFromContext(context, config, writeOptions, readInternal),
+    ) => {
+      const { writeConfigFileFromContext } = await import("./io.write.js");
+      return withConfigWriteLock(
+        context.configPath,
+        () => writeConfigFileFromContext(context, config, writeOptions, readInternal),
+        context.deps.env,
+      );
+    },
   };
 }

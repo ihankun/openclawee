@@ -36,4 +36,42 @@ describe("resolveResetPreservedSelection", () => {
       modelOverrideRouteResolution: "resolved",
     });
   });
+
+  it("preserves an explicit configured-default selection", () => {
+    expect(
+      resolveResetPreservedSelection({
+        entry: {
+          sessionId: "explicit-default",
+          updatedAt: 1,
+          modelOverrideSource: "default",
+        },
+      }),
+    ).toEqual({ modelOverrideSource: "default" });
+  });
+
+  it("preserves legacy user auth pins while dropping legacy automatic pins", () => {
+    expect(
+      resolveResetPreservedSelection({
+        entry: {
+          sessionId: "legacy-user",
+          updatedAt: 1,
+          authProfileOverride: "openai:work",
+        },
+      }),
+    ).toEqual({
+      authProfileOverride: "openai:work",
+      authProfileOverrideSource: "user",
+    });
+
+    expect(
+      resolveResetPreservedSelection({
+        entry: {
+          sessionId: "legacy-auto",
+          updatedAt: 1,
+          authProfileOverride: "openai:fallback",
+          authProfileOverrideCompactionCount: 0,
+        },
+      }),
+    ).toEqual({});
+  });
 });

@@ -1,6 +1,7 @@
-// Feishu tests cover docx plugin behavior.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+// Feishu tests cover docx plugin behavior.
+import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FEISHU_HTTP_TIMEOUT_MS } from "./client-timeout.js";
 import { createToolFactoryHarness, type ToolLike } from "./tool-factory-test-harness.js";
@@ -23,11 +24,10 @@ const permissionMemberCreateMock = vi.hoisted(() => vi.fn());
 const blockPatchMock = vi.hoisted(() => vi.fn());
 const scopeListMock = vi.hoisted(() => vi.fn());
 const toolAccountModule = await import("./tool-account.js");
+const clientModule = await import("./client.js");
 const runtimeModule = await import("./runtime.js");
 
-vi.spyOn(toolAccountModule, "createFeishuToolClient").mockImplementation(() =>
-  createFeishuClientMock(),
-);
+vi.spyOn(clientModule, "createFeishuClient").mockImplementation(() => createFeishuClientMock());
 vi.spyOn(toolAccountModule, "resolveAnyEnabledFeishuToolsConfig").mockReturnValue({
   doc: true,
   chat: false,
@@ -69,12 +69,7 @@ type ToolResultWithDetails = {
 
 const WORKSPACE_ROOT = path.resolve("/workspace");
 
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object") {
-    throw new Error(`expected ${label}`);
-  }
-  return value as Record<string, unknown>;
-}
+const requireRecord = createRequireRecord("object", "expected-label");
 
 function callArg(mock: unknown, callIndex: number, argIndex: number, label: string) {
   const calls = (mock as { mock?: { calls?: Array<Array<unknown>> } }).mock?.calls ?? [];

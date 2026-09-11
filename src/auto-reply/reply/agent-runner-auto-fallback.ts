@@ -8,6 +8,10 @@ import {
 } from "../../agents/agent-scope.js";
 import { resolvePersistedOverrideModelRef } from "../../agents/model-selection.js";
 import type { SessionEntry } from "../../config/sessions.js";
+import {
+  resolveCollapsedSessionAuthPinSource,
+  resolveSessionAuthProfileOverrideSource,
+} from "../../config/sessions/auth-profile-override-provenance.js";
 import { resolveSessionModelOverrideRouteResolution } from "../../config/sessions/model-override-provenance.js";
 import { updateSessionEntry } from "../../config/sessions/session-accessor.js";
 import { mergeSessionSnapshotChanges } from "../../config/sessions/session-snapshot-merge.js";
@@ -61,15 +65,17 @@ export function resolveRunAfterAutoFallbackPrimaryProbeRecheck(params: {
       delete fallbackRun.hasSessionModelOverride;
       delete fallbackRun.hasAutoFallbackProvenance;
     }
-    if (hasEntryModelOverride && params.entry?.modelOverrideSource) {
-      fallbackRun.modelOverrideSource = params.entry.modelOverrideSource;
+    const modelOverrideSource = params.entry?.modelOverrideSource;
+    if (hasEntryModelOverride && modelOverrideSource && modelOverrideSource !== "default") {
+      fallbackRun.modelOverrideSource = modelOverrideSource;
     } else {
       delete fallbackRun.modelOverrideSource;
     }
     if (hasEntryModelOverride && authProfileId) {
       fallbackRun.authProfileId = authProfileId;
-      if (params.entry?.authProfileOverrideSource) {
-        fallbackRun.authProfileIdSource = params.entry.authProfileOverrideSource;
+      const authProfileIdSource = resolveCollapsedSessionAuthPinSource(params.entry);
+      if (authProfileIdSource) {
+        fallbackRun.authProfileIdSource = authProfileIdSource;
       } else {
         delete fallbackRun.authProfileIdSource;
       }
@@ -141,9 +147,7 @@ export async function clearRecoveredAutoFallbackPrimaryProbeSelection(params: {
         return null;
       }
       const shouldClearAuthProfile =
-        persistedEntry.authProfileOverrideSource === "auto" ||
-        (persistedEntry.authProfileOverrideSource === undefined &&
-          persistedEntry.authProfileOverrideCompactionCount !== undefined);
+        resolveSessionAuthProfileOverrideSource(persistedEntry) === "auto";
       clearAutoFallbackPrimaryProbeSelection(persistedEntry);
       return {
         providerOverride: undefined,

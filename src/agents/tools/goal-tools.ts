@@ -4,13 +4,14 @@
  * Provides create/get/update goal operations scoped to the current session store.
  */
 import { Type } from "typebox";
+import { SessionGoalTransitionError } from "../../config/sessions/goals-transitions.js";
 import {
   createSessionGoal,
   getSessionGoal,
   MODEL_UPDATABLE_SESSION_GOAL_STATUSES,
   updateSessionGoalStatus,
 } from "../../config/sessions/goals.js";
-import { resolveStorePath } from "../../config/sessions/paths.js";
+import { resolveSessionStorePathCore } from "../../config/sessions/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import { stringEnum } from "../schema/typebox.js";
@@ -19,7 +20,7 @@ import {
   ToolInputError,
   jsonResult,
   readPositiveIntegerParam,
-  readStringParam,
+  readToolStringParam,
 } from "./common.js";
 
 type GoalToolOptions = {
@@ -68,7 +69,7 @@ function resolveGoalSessionScope(options: GoalToolOptions): GoalSessionScope {
   return {
     sessionKey,
     agentId,
-    storePath: resolveStorePath(options.config?.session?.store, {
+    storePath: resolveSessionStorePathCore(options.config?.session?.store, {
       agentId,
     }),
   };
@@ -103,7 +104,7 @@ export function createCreateGoalTool(options: GoalToolOptions): AnyAgentTool {
     parameters: CreateGoalToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
-      const objective = readStringParam(params, "objective", { required: true });
+      const objective = readToolStringParam(params, "objective", { required: true });
       const tokenBudget = readPositiveIntegerParam(params, "token_budget", {
         message: "token_budget must be a positive integer",
       });
@@ -130,7 +131,7 @@ export function createUpdateGoalTool(options: GoalToolOptions): AnyAgentTool {
     parameters: UpdateGoalToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
-      const status = readStringParam(params, "status", { required: true });
+      const status = readToolStringParam(params, "status", { required: true });
       if (
         !MODEL_UPDATABLE_SESSION_GOAL_STATUSES.includes(
           status as (typeof MODEL_UPDATABLE_SESSION_GOAL_STATUSES)[number],
@@ -140,20 +141,32 @@ export function createUpdateGoalTool(options: GoalToolOptions): AnyAgentTool {
           `status must be one of ${MODEL_UPDATABLE_SESSION_GOAL_STATUSES.join(", ")}`,
         );
       }
-      const note = readStringParam(params, "note");
+      const note = readToolStringParam(params, "note");
       const scope = resolveGoalSessionScope(options);
-      const goal = await updateSessionGoalStatus({
-        ...scope,
-        actor: { type: "agent", id: scope.sessionKey },
-        status: status as (typeof MODEL_UPDATABLE_SESSION_GOAL_STATUSES)[number],
-        ...(note ? { note } : {}),
-      });
-      return jsonResult({
-        status: "updated",
-        goal,
-        nextAction:
-          "Goal status was updated, but no reply was sent to the user. Continue this turn and provide the requested visible final response.",
-      });
+      try {
+        const goal = await updateSessionGoalStatus({
+          ...scope,
+          actor: { type: "agent", id: scope.sessionKey },
+          status: status as (typeof MODEL_UPDATABLE_SESSION_GOAL_STATUSES)[number],
+          ...(note ? { note } : {}),
+        });
+        return jsonResult({
+          status: "updated",
+          goal,
+          nextAction:
+            "Goal status was updated, but no reply was sent to the user. Continue this turn and provide the requested visible final response.",
+        });
+      } catch (err) {
+        if (err instanceof SessionGoalTransitionError) {
+          return jsonResult({
+            status: "error",
+            error: err.message,
+            nextAction:
+              "Do not retry update_goal. No active goal requires a status change — continue this turn and provide your response to the user.",
+          });
+        }
+        throw err;
+      }
     },
   };
 }
