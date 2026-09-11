@@ -152,10 +152,14 @@ function sourcePackageAlias(packageId: string, subpath?: string): ControlUiViteA
 
 export function resolveSourcePackageAliasesForVite(): ControlUiViteAlias[] {
   return [
+    sourcePackageAlias("normalization-core", "code-points"),
+    sourcePackageAlias("normalization-core", "error-coercion"),
     sourcePackageAlias("normalization-core", "number-coercion"),
     sourcePackageAlias("normalization-core", "record-coerce"),
+    sourcePackageAlias("normalization-core", "result"),
     sourcePackageAlias("normalization-core", "string-coerce"),
     sourcePackageAlias("normalization-core", "string-normalization"),
+    sourcePackageAlias("normalization-core", "utf16-slice"),
     sourcePackageAlias("normalization-core"),
   ];
 }
@@ -248,6 +252,14 @@ export default function controlUiViteConfig(): UserConfig {
     resolve: {
       alias: [
         { find: "json5", replacement: json5EsmPath },
+        {
+          find: /^@openclaw\/fs-safe\/(.+)$/,
+          replacement: path.join(repoRoot, "node_modules/@openclaw/fs-safe/dist/$1.js"),
+        },
+        {
+          find: "@openclaw/fs-safe",
+          replacement: path.join(repoRoot, "node_modules/@openclaw/fs-safe/dist/index.js"),
+        },
         ...resolveSourcePackageAliasesForVite(),
         ...resolveTsconfigPathAliasesForVite(),
       ],

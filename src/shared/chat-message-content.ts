@@ -58,7 +58,11 @@ export function parseAssistantTextSignature(
     result = { id: value };
   } else {
     try {
-      const parsed = JSON.parse(value) as { id?: unknown; phase?: unknown; v?: unknown };
+      const parsed = JSON.parse(value) as {
+        id?: unknown;
+        phase?: unknown;
+        v?: unknown;
+      };
       result =
         parsed.v === 1
           ? {
@@ -141,7 +145,11 @@ export function extractAssistantTextForPhase(
   if (!message || typeof message !== "object") {
     return undefined;
   }
-  const entry = message as { text?: unknown; content?: unknown; phase?: unknown };
+  const entry = message as {
+    text?: unknown;
+    content?: unknown;
+    phase?: unknown;
+  };
   const messagePhase = normalizeAssistantPhase(entry.phase);
   const phase = options?.phase;
   const sanitizeText = options?.sanitizeText;
@@ -178,7 +186,11 @@ export function extractAssistantTextForPhase(
     if (!block || typeof block !== "object") {
       continue;
     }
-    const record = block as { type?: unknown; text?: unknown; textSignature?: unknown };
+    const record = block as {
+      type?: unknown;
+      text?: unknown;
+      textSignature?: unknown;
+    };
     if (!isAssistantTextContentBlockType(record.type) || typeof record.text !== "string") {
       continue;
     }
@@ -197,9 +209,14 @@ export function extractAssistantTextForPhase(
 
 /** Returns user-visible assistant text, preferring final answers over legacy unphased text. */
 export function extractAssistantPhaseText(message: unknown): string | undefined {
-  const finalAnswerText = extractAssistantTextForPhase(message, { phase: "final_answer" });
+  const finalAnswerText = extractAssistantTextForPhase(message, {
+    phase: "final_answer",
+  });
   if (finalAnswerText) {
     return finalAnswerText;
   }
   return extractAssistantTextForPhase(message);
 }
+
+/** Backward-compatible alias for extractAssistantPhaseText. */
+export { extractAssistantPhaseText as extractAssistantVisibleText };

@@ -76,6 +76,9 @@ export function normalizeToolPolicyName(name: string): string {
   return TOOL_NAME_ALIASES.get(normalized) ?? normalized;
 }
 
+/** Backward-compatible alias for normalizeToolPolicyName. */
+export { normalizeToolPolicyName as normalizeToolName };
+
 /** Checks whether an in-progress prefix can still resolve to an allowed tool or alias. */
 export function couldNormalizeToolNamePrefixToAllowedTool(
   prefix: string,

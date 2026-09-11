@@ -151,7 +151,11 @@ function loadElectronConfig() {
       const raw = fs.readFileSync(ELECTRON_CONFIG_PATH, "utf-8");
       const parsed = JSON.parse(raw);
       electronConfig = { ...ELECTRON_CONFIG_DEFAULTS, ...parsed };
-      log("Config loaded from", ELECTRON_CONFIG_PATH, JSON.stringify(electronConfig));
+      log(
+        "Config loaded from",
+        ELECTRON_CONFIG_PATH,
+        JSON.stringify(electronConfig),
+      );
     } else {
       electronConfig = { ...ELECTRON_CONFIG_DEFAULTS };
       log("Config not found, using defaults");
@@ -166,7 +170,11 @@ function saveElectronConfig(partial) {
   try {
     const updated = { ...electronConfig, ...partial };
     fs.mkdirSync(ELECTRON_CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(ELECTRON_CONFIG_PATH, JSON.stringify(updated, null, 2), "utf-8");
+    fs.writeFileSync(
+      ELECTRON_CONFIG_PATH,
+      JSON.stringify(updated, null, 2),
+      "utf-8",
+    );
     electronConfig = updated;
     log("Config saved:", JSON.stringify(updated));
     return { success: true };
@@ -219,7 +227,10 @@ function persistMainWindowSize() {
 
 function scheduleMainWindowSizeSave() {
   if (windowSizeSaveTimer) clearTimeout(windowSizeSaveTimer);
-  windowSizeSaveTimer = setTimeout(persistMainWindowSize, WINDOW_SIZE_SAVE_DELAY_MS);
+  windowSizeSaveTimer = setTimeout(
+    persistMainWindowSize,
+    WINDOW_SIZE_SAVE_DELAY_MS,
+  );
 }
 
 function applyDockBehavior() {
@@ -243,12 +254,12 @@ function checkNeedsSetup() {
     const stateDir = path.join(homedir, ".openclaw");
     const configPath = path.join(stateDir, "openclaw.json");
     const exists = fs.existsSync(configPath);
-    
+
     log(`[setup-check] homedir: ${homedir}`);
     log(`[setup-check] stateDir: ${stateDir}`);
     log(`[setup-check] configPath: ${configPath}`);
     log(`[setup-check] exists: ${exists}`);
-    
+
     return !exists;
   } catch (err) {
     log("Error checking setup:", err.message);
@@ -266,13 +277,25 @@ function runSetupWithArgs(args) {
     const nodePath = resolveNodeBinary();
 
     if (!fs.existsSync(entryPath)) {
-      return Promise.resolve({ success: false, error: "openclaw.mjs not found", stdout: "", stderr: "" });
+      return Promise.resolve({
+        success: false,
+        error: "openclaw.mjs not found",
+        stdout: "",
+        stderr: "",
+      });
     }
     if (!nodePath) {
-      return Promise.resolve({ success: false, error: "Node.js not found", stdout: "", stderr: "" });
+      return Promise.resolve({
+        success: false,
+        error: "Node.js not found",
+        stdout: "",
+        stderr: "",
+      });
     }
 
-    const cwd = isDevelopment ? resolveProjectRoot() : path.join(process.resourcesPath, "gateway");
+    const cwd = isDevelopment
+      ? resolveProjectRoot()
+      : path.join(process.resourcesPath, "gateway");
     const env = { ...process.env, OPENCLAW_NO_RESPAWN: "1" };
 
     log("[setup] running:", nodePath, entryPath, ...args);
@@ -282,7 +305,7 @@ function runSetupWithArgs(args) {
       const setupProcess = spawn(nodePath, [entryPath, ...args], {
         cwd,
         env,
-        stdio: ["ignore", "pipe", "pipe"]
+        stdio: ["ignore", "pipe", "pipe"],
       });
 
       let output = "";
@@ -306,7 +329,9 @@ function runSetupWithArgs(args) {
           needsSetup = false;
           resolve({ success: true });
         } else {
-          const combined = [errorOutput.trim(), output.trim()].filter(Boolean).join("\n");
+          const combined = [errorOutput.trim(), output.trim()]
+            .filter(Boolean)
+            .join("\n");
           resolve({
             success: false,
             error: combined || `进程退出，代码: ${code}`,
@@ -318,12 +343,22 @@ function runSetupWithArgs(args) {
 
       setupProcess.on("error", (err) => {
         log("[setup] spawn error:", err.message);
-        resolve({ success: false, error: `启动失败: ${err.message}`, stdout: "", stderr: "" });
+        resolve({
+          success: false,
+          error: `启动失败: ${err.message}`,
+          stdout: "",
+          stderr: "",
+        });
       });
     });
   } catch (err) {
     log("[setup] exception:", err.message);
-    return Promise.resolve({ success: false, error: `异常: ${err.message}`, stdout: "", stderr: "" });
+    return Promise.resolve({
+      success: false,
+      error: `异常: ${err.message}`,
+      stdout: "",
+      stderr: "",
+    });
   }
 }
 
@@ -362,10 +397,34 @@ function resolveNodeBinary() {
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",
     "/usr/bin/node",
-    path.join(process.env.HOME || "", ".nvm/versions/node", "v24.8.0", "bin", "node"),
-    path.join(process.env.HOME || "", ".nvm/versions/node", "v24", "bin", "node"),
-    path.join(process.env.HOME || "", ".nvm/versions/node", "v23", "bin", "node"),
-    path.join(process.env.HOME || "", ".nvm/versions/node", "v22", "bin", "node"),
+    path.join(
+      process.env.HOME || "",
+      ".nvm/versions/node",
+      "v24.8.0",
+      "bin",
+      "node",
+    ),
+    path.join(
+      process.env.HOME || "",
+      ".nvm/versions/node",
+      "v24",
+      "bin",
+      "node",
+    ),
+    path.join(
+      process.env.HOME || "",
+      ".nvm/versions/node",
+      "v23",
+      "bin",
+      "node",
+    ),
+    path.join(
+      process.env.HOME || "",
+      ".nvm/versions/node",
+      "v22",
+      "bin",
+      "node",
+    ),
   ];
   for (const c of systemCandidates) {
     if (fs.existsSync(c)) return c;
@@ -448,10 +507,13 @@ async function checkGatewayHealth() {
   return new Promise((resolve) => {
     const req = http.get(gatewayURL(), { timeout: 2000 }, (res) => {
       res.resume();
-      resolve(true);
+      resolve(res.statusCode === 200);
     });
     req.on("error", () => resolve(false));
-    req.on("timeout", () => { req.destroy(); resolve(false); });
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
   });
 }
 
@@ -474,17 +536,25 @@ function startGateway() {
   const nodePath = resolveNodeBinary();
 
   if (!fs.existsSync(entryPath)) {
-    dialog.showErrorBox("Gateway Error", `openclaw.mjs not found:\n${entryPath}\n\nRun "pnpm build" first.`);
+    dialog.showErrorBox(
+      "Gateway Error",
+      `openclaw.mjs not found:\n${entryPath}\n\nRun "pnpm build" first.`,
+    );
     gatewayStarting = false;
     return;
   }
   if (!nodePath) {
-    dialog.showErrorBox("Node.js Not Found", "Cannot find Node.js v22+.\nPlease install Node.js and try again.");
+    dialog.showErrorBox(
+      "Node.js Not Found",
+      "Cannot find Node.js v22+.\nPlease install Node.js and try again.",
+    );
     gatewayStarting = false;
     return;
   }
 
-  const cwd = isDevelopment ? resolveProjectRoot() : path.join(process.resourcesPath, "gateway");
+  const cwd = isDevelopment
+    ? resolveProjectRoot()
+    : path.join(process.resourcesPath, "gateway");
   const env = {
     ...process.env,
     OPENCLAW_GATEWAY_PORT: String(GATEWAY_PORT),
@@ -503,7 +573,11 @@ function startGateway() {
     log("resourcesPath:", process.resourcesPath);
   }
 
-  gatewayProcess = spawn(nodePath, [entryPath, "gateway", "--auth", "none"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  gatewayProcess = spawn(nodePath, [entryPath, "gateway", "--auth", "none"], {
+    cwd,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   log("Gateway spawned:", path.basename(nodePath), "gateway --auth none");
 
@@ -515,13 +589,33 @@ function startGateway() {
     // Send progress updates to loading page
     const progressMap = [
       { match: "loading configuration", step: "config", label: "加载配置文件" },
-      { match: "resolving authentication", step: "auth", label: "验证认证信息" },
+      {
+        match: "resolving authentication",
+        step: "auth",
+        label: "验证认证信息",
+      },
       { match: "starting...", step: "starting", label: "初始化网关" },
-      { match: "plugins.bootstrap", step: "plugins", label: "扫描插件 (135个)" },
-      { match: "plugins.gateway-load", step: "plugins-load", label: "加载插件模块" },
+      {
+        match: "plugins.bootstrap",
+        step: "plugins",
+        label: "扫描插件 (135个)",
+      },
+      {
+        match: "plugins.gateway-load",
+        step: "plugins-load",
+        label: "加载插件模块",
+      },
       { match: "starting HTTP server", step: "http", label: "启动HTTP服务器" },
-      { match: "http server listening", step: "http-ready", label: "HTTP服务器就绪" },
-      { match: "starting channels and sidecars", step: "channels", label: "启动频道服务" },
+      {
+        match: "http server listening",
+        step: "http-ready",
+        label: "HTTP服务器就绪",
+      },
+      {
+        match: "starting channels and sidecars",
+        step: "channels",
+        label: "启动频道服务",
+      },
       { match: "gateway ready", step: "ready", label: "网关就绪" },
     ];
     for (const p of progressMap) {
@@ -537,14 +631,14 @@ function startGateway() {
       }
     }
 
-    // HTTP server is ready — show dashboard immediately for faster UX
-    // Provider auth pre-warm happens later (~25s after) but user can browse UI meanwhile
+    // HTTP server is ready — wait for control UI assets (HTTP 200) before navigating.
+    // waitForGatewayReady() polls the gateway URL and calls notifyGatewayReady() when ready.
     if (!gatewayReady && text.includes("http server listening")) {
       const elapsed = ((Date.now() - spawnTime) / 1000).toFixed(1);
-      log(`[gateway] http server ready in ${elapsed}s`);
-      gatewayReady = true;
+      log(
+        `[gateway] http server ready in ${elapsed}s, waiting for control UI…`,
+      );
       gatewayStarting = false;
-      notifyGatewayReady();
     }
   });
 
@@ -556,20 +650,48 @@ function startGateway() {
     // Parse startup traces from stderr for progress updates
     const traceProgressMap = [
       { match: "cli.main.dotenv", step: "dotenv", label: "加载环境变量" },
-      { match: "cli.main.gateway-run-select-environment", step: "env-select", label: "选择运行环境" },
-      { match: "cli.main.gateway-run-pre-bootstrap", step: "pre-bootstrap", label: "预引导检查" },
-      { match: "cli.main.gateway-run-bootstrap", step: "bootstrap", label: "插件索引导入" },
+      {
+        match: "cli.main.gateway-run-select-environment",
+        step: "env-select",
+        label: "选择运行环境",
+      },
+      {
+        match: "cli.main.gateway-run-pre-bootstrap",
+        step: "pre-bootstrap",
+        label: "预引导检查",
+      },
+      {
+        match: "cli.main.gateway-run-bootstrap",
+        step: "bootstrap",
+        label: "插件索引导入",
+      },
       { match: "cli.config-snapshot", step: "config", label: "加载配置文件" },
       { match: "cli.auth-resolve", step: "auth", label: "验证认证信息" },
       { match: "cli.gateway-loop", step: "starting", label: "初始化网关" },
       { match: "plugins.bootstrap", step: "plugins", label: "扫描插件索引" },
-      { match: "plugins.lookup-table", step: "plugins-table", label: "构建插件查找表" },
-      { match: "plugins.gateway-load", step: "plugins-load", label: "加载网关插件" },
+      {
+        match: "plugins.lookup-table",
+        step: "plugins-table",
+        label: "构建插件查找表",
+      },
+      {
+        match: "plugins.gateway-load",
+        step: "plugins-load",
+        label: "加载网关插件",
+      },
       { match: "gateway.handlers", step: "handlers", label: "注册API处理程序" },
       { match: "http.listen", step: "http", label: "启动HTTP服务器" },
       { match: "sidecars.total", step: "sidecars", label: "启动附属服务" },
-      { match: "sidecars.ready", step: "sidecars-ready", label: "附属服务就绪" },
-      { match: "post-ready.maintenance", step: "maintenance", label: "后台维护任务" },
+      {
+        match: "sidecars.ready",
+        step: "sidecars-ready",
+        label: "附属服务就绪",
+      },
+      {
+        match: "post-ready.maintenance",
+        step: "maintenance",
+        label: "后台维护任务",
+      },
     ];
     for (const p of traceProgressMap) {
       if (text.includes(p.match)) {
@@ -624,13 +746,19 @@ function stopGateway() {
 function restartGateway() {
   stopGateway();
   const check = setInterval(() => {
-    if (!gatewayProcess) { clearInterval(check); startGateway(); }
+    if (!gatewayProcess) {
+      clearInterval(check);
+      startGateway();
+    }
   }, 100);
 }
 
 function notifyGatewayReady() {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("gateway:ready", { port: GATEWAY_PORT, host: GATEWAY_HOST });
+    mainWindow.webContents.send("gateway:ready", {
+      port: GATEWAY_PORT,
+      host: GATEWAY_HOST,
+    });
     mainWindow.loadURL(gatewayURL());
   }
 }
@@ -784,7 +912,10 @@ function createTray() {
     { type: "separator" },
     {
       label: "退出",
-      click: () => { app.isQuitting = true; app.quit(); },
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      },
     },
   ]);
 
@@ -818,10 +949,24 @@ function createApplicationMenu() {
     new MenuItem({
       label: "文件",
       submenu: [
-        { label: "重启网关", accelerator: "CmdOrCtrl+Shift+R", click: () => restartGateway() },
-        { label: "配置", accelerator: "CmdOrCtrl+,", click: () => createSettingsWindow() },
+        {
+          label: "重启网关",
+          accelerator: "CmdOrCtrl+Shift+R",
+          click: () => restartGateway(),
+        },
+        {
+          label: "配置",
+          accelerator: "CmdOrCtrl+,",
+          click: () => createSettingsWindow(),
+        },
         { type: "separator" },
-        { label: "关闭窗口", accelerator: "CmdOrCtrl+W", click: () => { if (mainWindow) mainWindow.close(); } },
+        {
+          label: "关闭窗口",
+          accelerator: "CmdOrCtrl+W",
+          click: () => {
+            if (mainWindow) mainWindow.close();
+          },
+        },
       ],
     }),
     new MenuItem({
@@ -842,7 +987,11 @@ function createApplicationMenu() {
       label: "视图",
       submenu: [
         { label: "重新加载", accelerator: "CmdOrCtrl+R", role: "reload" },
-        { label: "强制重新加载", accelerator: "CmdOrCtrl+Shift+R", role: "forceReload" },
+        {
+          label: "强制重新加载",
+          accelerator: "CmdOrCtrl+Shift+R",
+          role: "forceReload",
+        },
         { type: "separator" },
         { label: "重置缩放", accelerator: "CmdOrCtrl+0", role: "resetZoom" },
         { label: "放大", accelerator: "CmdOrCtrl+=", role: "zoomIn" },
@@ -850,7 +999,11 @@ function createApplicationMenu() {
         { type: "separator" },
         { label: "全屏", role: "togglefullscreen" },
         { type: "separator" },
-        { label: "开发者工具", accelerator: "CmdOrCtrl+Shift+I", role: "toggleDevTools" },
+        {
+          label: "开发者工具",
+          accelerator: "CmdOrCtrl+Shift+I",
+          role: "toggleDevTools",
+        },
       ],
     }),
     new MenuItem({
@@ -865,8 +1018,15 @@ function createApplicationMenu() {
     new MenuItem({
       label: "帮助",
       submenu: [
-        { label: "OpenClaw 文档", click: () => shell.openExternal("https://docs.openclaw.ai") },
-        { label: "报告问题", click: () => shell.openExternal("https://github.com/openclaw/openclaw/issues") },
+        {
+          label: "OpenClaw 文档",
+          click: () => shell.openExternal("https://docs.openclaw.ai"),
+        },
+        {
+          label: "报告问题",
+          click: () =>
+            shell.openExternal("https://github.com/openclaw/openclaw/issues"),
+        },
       ],
     }),
   ];
@@ -879,19 +1039,27 @@ function createApplicationMenu() {
 
 function setupIpcHandlers() {
   ipcMain.handle("gateway:status", () => ({
-    running: gatewayProcess !== null, ready: gatewayReady,
-    starting: gatewayStarting, port: GATEWAY_PORT, host: GATEWAY_HOST,
+    running: gatewayProcess !== null,
+    ready: gatewayReady,
+    starting: gatewayStarting,
+    port: GATEWAY_PORT,
+    host: GATEWAY_HOST,
   }));
-  ipcMain.handle("gateway:restart", () => { restartGateway(); return { success: true }; });
+  ipcMain.handle("gateway:restart", () => {
+    restartGateway();
+    return { success: true };
+  });
   ipcMain.handle("app:info", () => ({
-    version: app.getVersion(), name: app.name,
-    isPackaged: app.isPackaged, isDevelopment,
+    version: app.getVersion(),
+    name: app.name,
+    isPackaged: app.isPackaged,
+    isDevelopment,
   }));
   ipcMain.handle("shell:openExternal", async (_event, url) => {
     await shell.openExternal(url);
     return { success: true };
   });
-  
+
   // Handle setup command (legacy, no args)
   ipcMain.handle("run-setup", async () => {
     return runSetupWithArgs(["setup", "--baseline"]);
@@ -903,90 +1071,95 @@ function setupIpcHandlers() {
   });
 
   // Write provider config directly to openclaw.json
-  ipcMain.handle("write-provider-config", async (_event, { provider, apiKey }) => {
-    try {
-      const homedir = os.homedir();
-      const stateDir = path.join(homedir, ".openclaw");
-      const configPath = path.join(stateDir, "openclaw.json");
+  ipcMain.handle(
+    "write-provider-config",
+    async (_event, { provider, apiKey }) => {
+      try {
+        const homedir = os.homedir();
+        const stateDir = path.join(homedir, ".openclaw");
+        const configPath = path.join(stateDir, "openclaw.json");
 
-      let config = {};
-      if (fs.existsSync(configPath)) {
-        const raw = fs.readFileSync(configPath, "utf-8");
-        config = JSON.parse(raw);
+        let config = {};
+        if (fs.existsSync(configPath)) {
+          const raw = fs.readFileSync(configPath, "utf-8");
+          config = JSON.parse(raw);
+        }
+
+        // Ensure structure
+        if (!config.env) config.env = {};
+        if (!config.agents) config.agents = {};
+        if (!config.agents.defaults) config.agents.defaults = {};
+        if (!config.agents.defaults.model) config.agents.defaults.model = {};
+
+        // Set API key as env var
+        const envKeyMap = {
+          openai: "OPENAI_API_KEY",
+          anthropic: "ANTHROPIC_API_KEY",
+          google: "GEMINI_API_KEY",
+          deepseek: "DEEPSEEK_API_KEY",
+          xai: "XAI_API_KEY",
+          mistral: "MISTRAL_API_KEY",
+          qwen: "DASHSCOPE_API_KEY",
+          moonshot: "MOONSHOT_API_KEY",
+          kimi: "MOONSHOT_API_KEY",
+          minimax: "MINIMAX_API_KEY",
+          zai: "ZAI_API_KEY",
+          stepfun: "STEPFUN_API_KEY",
+          qianfan: "QIANFAN_API_KEY",
+          volcengine: "VOLCENGINE_API_KEY",
+          novita: "NOVITA_API_KEY",
+          groq: "GROQ_API_KEY",
+          cerebras: "CEREBRAS_API_KEY",
+          deepinfra: "DEEPINFRA_API_KEY",
+          fireworks: "FIREWORKS_API_KEY",
+          together: "TOGETHER_API_KEY",
+          openrouter: "OPENROUTER_API_KEY",
+          nvidia: "NVIDIA_API_KEY",
+          huggingface: "HF_TOKEN",
+          cohere: "COHERE_API_KEY",
+          github_copilot: "GITHUB_TOKEN",
+          arcee: "ARCEE_API_KEY",
+          venice: "VENICE_API_KEY",
+        };
+
+        const envKey =
+          envKeyMap[provider] ||
+          `${provider.toUpperCase().replace(/-/g, "_")}_API_KEY`;
+        config.env[envKey] = apiKey;
+
+        // Set default model for common providers
+        const defaultModels = {
+          openai: "openai/gpt-5.5",
+          anthropic: "anthropic/claude-sonnet-4-6",
+          google: "google/gemini-2.5-flash",
+          deepseek: "deepseek/deepseek-v4-flash",
+          xai: "xai/grok-3",
+          mistral: "mistral/mistral-large-latest",
+          qwen: "qwen/qwen-max",
+          moonshot: "moonshot/kimi-k2.6",
+          kimi: "moonshot/kimi-k2.6",
+          groq: "groq/llama-3.3-70b-versatile",
+          cerebras: "cerebras/llama-3.3-70b",
+          openrouter: "openai/gpt-4o",
+        };
+
+        if (defaultModels[provider]) {
+          config.agents.defaults.model.primary = defaultModels[provider];
+        }
+
+        // Write config
+        fs.mkdirSync(stateDir, { recursive: true });
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+        log("[config] wrote provider config for", provider, "to", configPath);
+
+        return { success: true };
+      } catch (err) {
+        log("[config] write error:", err.message);
+        return { success: false, error: err.message };
       }
+    },
+  );
 
-      // Ensure structure
-      if (!config.env) config.env = {};
-      if (!config.agents) config.agents = {};
-      if (!config.agents.defaults) config.agents.defaults = {};
-      if (!config.agents.defaults.model) config.agents.defaults.model = {};
-
-      // Set API key as env var
-      const envKeyMap = {
-        openai: "OPENAI_API_KEY",
-        anthropic: "ANTHROPIC_API_KEY",
-        google: "GEMINI_API_KEY",
-        deepseek: "DEEPSEEK_API_KEY",
-        xai: "XAI_API_KEY",
-        mistral: "MISTRAL_API_KEY",
-        qwen: "DASHSCOPE_API_KEY",
-        moonshot: "MOONSHOT_API_KEY",
-        kimi: "MOONSHOT_API_KEY",
-        minimax: "MINIMAX_API_KEY",
-        zai: "ZAI_API_KEY",
-        stepfun: "STEPFUN_API_KEY",
-        qianfan: "QIANFAN_API_KEY",
-        volcengine: "VOLCENGINE_API_KEY",
-        novita: "NOVITA_API_KEY",
-        groq: "GROQ_API_KEY",
-        cerebras: "CEREBRAS_API_KEY",
-        deepinfra: "DEEPINFRA_API_KEY",
-        fireworks: "FIREWORKS_API_KEY",
-        together: "TOGETHER_API_KEY",
-        openrouter: "OPENROUTER_API_KEY",
-        nvidia: "NVIDIA_API_KEY",
-        huggingface: "HF_TOKEN",
-        cohere: "COHERE_API_KEY",
-        github_copilot: "GITHUB_TOKEN",
-        arcee: "ARCEE_API_KEY",
-        venice: "VENICE_API_KEY",
-      };
-
-      const envKey = envKeyMap[provider] || `${provider.toUpperCase().replace(/-/g, "_")}_API_KEY`;
-      config.env[envKey] = apiKey;
-
-      // Set default model for common providers
-      const defaultModels = {
-        openai: "openai/gpt-5.5",
-        anthropic: "anthropic/claude-sonnet-4-6",
-        google: "google/gemini-2.5-flash",
-        deepseek: "deepseek/deepseek-v4-flash",
-        xai: "xai/grok-3",
-        mistral: "mistral/mistral-large-latest",
-        qwen: "qwen/qwen-max",
-        moonshot: "moonshot/kimi-k2.6",
-        kimi: "moonshot/kimi-k2.6",
-        groq: "groq/llama-3.3-70b-versatile",
-        cerebras: "cerebras/llama-3.3-70b",
-        openrouter: "openai/gpt-4o",
-      };
-
-      if (defaultModels[provider]) {
-        config.agents.defaults.model.primary = defaultModels[provider];
-      }
-
-      // Write config
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-      log("[config] wrote provider config for", provider, "to", configPath);
-
-      return { success: true };
-    } catch (err) {
-      log("[config] write error:", err.message);
-      return { success: false, error: err.message };
-    }
-  });
-  
   // Handle setup completion
   ipcMain.on("setup-complete", () => {
     needsSetup = false;
@@ -996,7 +1169,7 @@ function setupIpcHandlers() {
     }
     startGateway();
   });
-  
+
   // Handle quit
   ipcMain.on("quit-app", () => {
     app.isQuitting = true;
@@ -1024,7 +1197,10 @@ function setupIpcHandlers() {
 
       fs.mkdirSync(stateDir, { recursive: true });
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-      log("[config] wrote channel config for", Object.keys(channels).join(", "));
+      log(
+        "[config] wrote channel config for",
+        Object.keys(channels).join(", "),
+      );
       return { success: true };
     } catch (err) {
       log("[config] channel write error:", err.message);
@@ -1062,7 +1238,7 @@ function setupIpcHandlers() {
       return { success: false, error: err.message };
     }
   });
-  
+
   // Config
   ipcMain.handle("config:get", () => ({ ...electronConfig }));
   ipcMain.handle("config:save", (_event, partial) => {
@@ -1101,12 +1277,12 @@ async function onAppReady() {
   Menu.setApplicationMenu(createApplicationMenu());
   setupIpcHandlers();
   createTray();
-  
+
   // Check if setup is needed
   needsSetup = checkNeedsSetup();
-  
+
   createMainWindow();
-  
+
   if (needsSetup) {
     // Show setup page
     mainWindow.loadURL(setupPageURL());

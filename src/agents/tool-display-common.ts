@@ -45,6 +45,9 @@ export function normalizeToolDisplayName(name?: string): string {
   return (name ?? "tool").trim();
 }
 
+/** Backward-compatible alias for normalizeToolDisplayName. */
+export { normalizeToolDisplayName as normalizeToolName };
+
 /** Convert a tool identifier into a human-readable title. */
 export function defaultTitle(name: string): string {
   const cleaned = name.replace(/_/g, " ").trim();
@@ -538,7 +541,11 @@ export function resolveToolSearchCodeDisplayTarget(
   if (call) {
     const toolName = resolveToolSearchCallTarget(code, call.target);
     if (!toolName) {
-      return { toolName: "tool_search_code", detail: "call selected tool", bridgeVerb: "call" };
+      return {
+        toolName: "tool_search_code",
+        detail: "call selected tool",
+        bridgeVerb: "call",
+      };
     }
     return {
       toolName,
@@ -553,7 +560,11 @@ export function resolveToolSearchCodeDisplayTarget(
     const toolName = summarizeToolSearchTarget(describeMatch[1]);
     return toolName
       ? { toolName, detail: "describe via tool search", bridgeVerb: "describe" }
-      : { toolName: "tool_search_code", detail: "describe selected tool", bridgeVerb: "describe" };
+      : {
+          toolName: "tool_search_code",
+          detail: "describe selected tool",
+          bridgeVerb: "describe",
+        };
   }
   const searchMatch = code.match(/openclaw\.tools\.search\s*\(\s*([^)]+?)\s*(?:,|\))/s);
   if (searchMatch) {
@@ -627,7 +638,10 @@ function resolveDetailFromKeys(
     if (!display) {
       continue;
     }
-    entries.push({ label: opts.formatKey ? opts.formatKey(key) : key, value: display });
+    entries.push({
+      label: opts.formatKey ? opts.formatKey(key) : key,
+      value: display,
+    });
   }
   if (entries.length === 0) {
     return undefined;
@@ -731,4 +745,29 @@ export function resolveToolVerbAndDetailForArgs(params: {
     detail = meta;
   }
   return { verb, detail };
+}
+
+export function formatToolDetailText(
+  detail: string | undefined,
+  opts: { prefixWithWith?: boolean } = {},
+): string | undefined {
+  if (!detail) {
+    return undefined;
+  }
+  const normalized = detail.includes(" · ")
+    ? (() => {
+        const parts: string[] = [];
+        for (const part of detail.split(" · ")) {
+          const trimmed = part.trim();
+          if (trimmed) {
+            parts.push(trimmed);
+          }
+        }
+        return parts.join(", ");
+      })()
+    : detail;
+  if (!normalized) {
+    return undefined;
+  }
+  return opts.prefixWithWith ? `with ${normalized}` : normalized;
 }
