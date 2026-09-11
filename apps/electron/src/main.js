@@ -26,7 +26,11 @@ const path = require("node:path");
 const http = require("node:http");
 const process = require("node:process");
 const os = require("node:os");
-const { TITLE_BAR_PADDING_CSS } = require("./title-bar-css.js");
+const {
+  TITLE_BAR_PADDING_CSS,
+  WIN_TITLE_BAR_CSS,
+  WIN_TITLE_BAR_JS,
+} = require("./title-bar-css.js");
 
 // ============================================================================
 // Debug Logging (for packaged-mode troubleshooting)
@@ -44,15 +48,46 @@ function getLogFile() {
   return path.join(dir, `electron-${date}.log`);
 }
 
+// Gateway startup streams hundreds of lines; a synchronous append per line
+// blocks the main process on disk I/O while the window is still loading.
+// A single append stream keeps ordering and moves the writes off the hot path.
+let logStream = null;
+let logStreamPath = null;
+
+function getLogStream() {
+  const logFile = getLogFile();
+  if (logStream && logStreamPath === logFile) return logStream;
+  if (logStream) {
+    logStream.end();
+    logStream = null;
+  }
+  try {
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    logStream = fs.createWriteStream(logFile, { flags: "a" });
+    logStream.on("error", (err) => {
+      console.error(`[electron] Failed to write log:`, err.message);
+      logStream = null;
+      logStreamPath = null;
+    });
+    logStreamPath = logFile;
+  } catch (err) {
+    console.error(`[electron] Failed to open log:`, err.message);
+    logStream = null;
+    logStreamPath = null;
+  }
+  return logStream;
+}
+
+function closeLogStream() {
+  if (!logStream) return;
+  logStream.end();
+  logStream = null;
+  logStreamPath = null;
+}
+
 function log(...args) {
   const msg = `[electron] ${new Date().toISOString()} ${args.join(" ")}`;
-  try {
-    const logFile = getLogFile();
-    fs.mkdirSync(path.dirname(logFile), { recursive: true });
-    fs.appendFileSync(logFile, msg + "\n");
-  } catch (err) {
-    console.error(`[electron] Failed to write log:`, err.message);
-  }
+  getLogStream()?.write(msg + "\n");
   console.log(msg);
 }
 
@@ -113,6 +148,20 @@ function resolveProjectRoot() {
 
 function resolveOpenClawEntry() {
   return path.join(resolveProjectRoot(), "openclaw.mjs");
+}
+
+function resolveDevRunnerEntry() {
+  return path.join(resolveProjectRoot(), "scripts", "run-node.mjs");
+}
+
+/**
+ * Development builds launch through the repo's dev runner so a stale `dist` is
+ * rebuilt by its owner before the Gateway boots. Spawning `openclaw.mjs`
+ * directly would serve a runtime whose build identity no longer matches the
+ * Control UI assets, which the Gateway rejects.
+ */
+function resolveGatewayEntry() {
+  return isDevelopment ? resolveDevRunnerEntry() : resolveOpenClawEntry();
 }
 
 function resolveTrayIcon() {
@@ -273,13 +322,13 @@ function checkNeedsSetup() {
 
 function runSetupWithArgs(args) {
   try {
-    const entryPath = resolveOpenClawEntry();
+    const entryPath = resolveGatewayEntry();
     const nodePath = resolveNodeBinary();
 
     if (!fs.existsSync(entryPath)) {
       return Promise.resolve({
         success: false,
-        error: "openclaw.mjs not found",
+        error: `${path.basename(entryPath)} not found`,
         stdout: "",
         stderr: "",
       });
@@ -379,13 +428,12 @@ function loadingPageURL() {
 }
 
 // ============================================================================
-// Windows Title Bar Buttons (injected as JS into the renderer page)
+// Title Bar (macOS traffic-light padding, Windows window controls)
 // ============================================================================
 
-// The Windows title bar (minimize/maximize/close) is now rendered by the
-// dashboard Control UI itself (dashboard/src/ui/electron-window-bar.ts) instead
-// of being injected here. This keeps the controls in the web UI and lets them
-// sit in a top row rather than the previous top-left position.
+// The Control UI does not render Electron window controls. macOS keeps its
+// native traffic lights (only needs padding); on Windows the frameless window
+// gets an injected minimize/maximize/close bar. See title-bar-css.js.
 
 // ============================================================================
 // Node.js Binary
@@ -532,13 +580,13 @@ function startGateway() {
   gatewayStarting = true;
   gatewayReady = false;
 
-  const entryPath = resolveOpenClawEntry();
+  const entryPath = resolveGatewayEntry();
   const nodePath = resolveNodeBinary();
 
   if (!fs.existsSync(entryPath)) {
     dialog.showErrorBox(
       "Gateway Error",
-      `openclaw.mjs not found:\n${entryPath}\n\nRun "pnpm build" first.`,
+      `${path.basename(entryPath)} not found:\n${entryPath}\n\nRun "pnpm build" first.`,
     );
     gatewayStarting = false;
     return;
@@ -579,7 +627,12 @@ function startGateway() {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  log("Gateway spawned:", path.basename(nodePath), "gateway --auth none");
+  log(
+    "Gateway spawned:",
+    path.basename(nodePath),
+    path.basename(entryPath),
+    "gateway --auth none",
+  );
 
   gatewayProcess.stdout.on("data", (data) => {
     const text = data.toString();
@@ -768,13 +821,25 @@ function notifyGatewayReady() {
 // ============================================================================
 
 function injectTitleBarPadding(contents) {
-  // Reserved for macOS traffic-light spacing. On Windows the dashboard renders
-  // its own title bar and shifts the shell via the electron-win CSS class.
-  if (!isMac) return;
-  try {
-    contents.insertCSS(TITLE_BAR_PADDING_CSS);
-  } catch (err) {
-    log("Error injecting title bar CSS:", err.message);
+  // Writes are idempotent: insertCSS adds a stylesheet and the title bar guards
+  // against a second insert, so re-injection on every navigation is safe.
+  if (isMac) {
+    try {
+      contents.insertCSS(TITLE_BAR_PADDING_CSS);
+    } catch (err) {
+      log("Error injecting title bar CSS:", err.message);
+    }
+    return;
+  }
+  // On Windows the Control UI does not render Electron window controls, so the
+  // frameless window needs the injected minimize/maximize/close bar.
+  if (isWindows) {
+    try {
+      contents.insertCSS(WIN_TITLE_BAR_CSS);
+      contents.executeJavaScript(WIN_TITLE_BAR_JS);
+    } catch (err) {
+      log("Error injecting Windows title bar:", err.message);
+    }
   }
 }
 
@@ -1314,6 +1379,7 @@ app.on("before-quit", () => {
 app.on("will-quit", () => {
   if (gatewayProcess) gatewayProcess.kill("SIGKILL");
   if (appIcon) appIcon.destroy();
+  closeLogStream();
 });
 
 process.on("uncaughtException", (error) => {

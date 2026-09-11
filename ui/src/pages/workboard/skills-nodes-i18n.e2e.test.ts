@@ -8,7 +8,7 @@ import {
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
-} from "../../../../dashboard/src/test-helpers/control-ui-e2e.ts";
+} from "../../test-helpers/control-ui-e2e.ts";
 
 const artifactDir = path.resolve(process.cwd(), ".artifacts/control-ui-e2e/skills-nodes-i18n");
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());

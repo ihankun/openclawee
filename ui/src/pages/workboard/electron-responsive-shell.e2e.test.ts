@@ -9,7 +9,7 @@ import {
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
-} from "../../../../dashboard/src/test-helpers/control-ui-e2e.ts";
+} from "../../test-helpers/control-ui-e2e.ts";
 
 const require = createRequire(import.meta.url);
 const { MAC_TRAFFIC_LIGHTS_CLEARANCE_PX, TITLE_BAR_PADDING_CSS } =

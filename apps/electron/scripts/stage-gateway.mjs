@@ -12,7 +12,6 @@ import { cpSync, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, sta
 import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { installDashboardControlUi } from "./dashboard-ui.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -48,9 +47,18 @@ for (const item of REQUIRED) {
   console.log(`  ✓ ${item}`);
 }
 
-// Electron owns its legacy dashboard bundle; keep the staged Gateway runtime current
-// while replacing only the Control UI assets that it serves.
-installDashboardControlUi(path.join(STAGING_DIR, "dist", "control-ui"));
+// The gateway serves the Control UI from its own dist/control-ui, which is
+// produced by the canonical `pnpm ui:build`. The staged runtime stays current
+// because it is the same artifact tree; bundling a separate UI fork here would
+// desync the runtime and UI build identities and make the gateway refuse to
+// serve the UI.
+const controlUiIndex = path.join(STAGING_DIR, "dist", "control-ui", "index.html");
+if (!existsSync(controlUiIndex)) {
+  console.error(
+    `[stage] MISSING: ${controlUiIndex} — run "pnpm ui:build" before staging`,
+  );
+  process.exit(1);
+}
 
 // Copy workspace templates (needed by gateway for agent workspace init)
 const tmplSrc = path.join(PROJECT_ROOT, TEMPLATES);
