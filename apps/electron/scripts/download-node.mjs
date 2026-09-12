@@ -18,18 +18,28 @@ import { get } from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
+import { isSupportedOpenClawNodeVersion, SUPPORTED_NODE_VERSIONS } from "../../../node-version.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RESOURCES_DIR = path.resolve(__dirname, "..", "resources");
 const NODE_DIR = path.join(RESOURCES_DIR, "node");
 const VERSION_FILE = path.join(RESOURCES_DIR, ".node-version");
-// Minimum required by openclaw.mjs is v22.19+. Default to latest v22 LTS.
-const DEFAULT_VERSION = "v22.19.0";
+// Must satisfy the runtime's release floors. Matches the default the official
+// installer ships (scripts/install-cli.sh DEFAULT_NODE_VERSION); the previous
+// v22 LTS default was below the supported range, so packaged Gateways refused
+// to start. Validate against the runtime's own owner below.
+const DEFAULT_VERSION = "v24.19.0";
 
 const PLATFORM_MAP = { darwin: "darwin", linux: "linux", win32: "win" };
 const ARCH_MAP = { arm64: "arm64", x64: "x64" };
 
 const version = process.argv[2] || DEFAULT_VERSION;
+if (!isSupportedOpenClawNodeVersion(version)) {
+  console.error(
+    `[download-node] ${version} is not a supported runtime (requires ${SUPPORTED_NODE_VERSIONS}).`,
+  );
+  process.exit(1);
+}
 const plat = PLATFORM_MAP[process.platform];
 const arch = ARCH_MAP[process.arch];
 

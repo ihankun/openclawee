@@ -32,11 +32,18 @@ if (existsSync(STAGING_DIR)) rmSync(STAGING_DIR, { recursive: true });
 mkdirSync(STAGING_DIR, { recursive: true });
 
 // ── 1. Copy built artifacts ──
+// `package.json` `files` is the authoritative list of what the runtime needs:
+// it already covers the launcher modules (openclaw.mjs and its node-*.mjs
+// imports), scripts/, patches/, and the bundled skill trees. Deriving the copy
+// list from it keeps staging from silently dropping a newly added requirement.
 console.log("── Artifacts ──");
-const REQUIRED = ["dist", "openclaw.mjs", "package.json", "SKILLs"];
-const TEMPLATES = "docs/reference/templates";
-const AGENT_TEMPLATES = "src/agents/templates";
+const REQUIRED = (rootPkg.files ?? [])
+  .filter((entry) => typeof entry === "string" && !entry.startsWith("!") && !entry.startsWith("."))
+  .map((entry) => entry.replace(/\/+$/, ""));
+// The Electron app supplies its own package.json for the staged runtime.
+const SKIP_FROM_FILES = new Set(["package.json"]);
 for (const item of REQUIRED) {
+  if (SKIP_FROM_FILES.has(item)) continue;
   const src = path.join(PROJECT_ROOT, item);
   const dst = path.join(STAGING_DIR, item);
   if (!existsSync(src)) {
@@ -45,6 +52,12 @@ for (const item of REQUIRED) {
   }
   cpSync(src, dst, { recursive: true, force: true });
   console.log(`  ✓ ${item}`);
+}
+// The runtime reads its own package.json for dependencies/engines.
+{
+  const src = path.join(PROJECT_ROOT, "package.json");
+  cpSync(src, path.join(STAGING_DIR, "package.json"), { force: true });
+  console.log("  ✓ package.json");
 }
 
 // The gateway serves the Control UI from its own dist/control-ui, which is
@@ -60,7 +73,9 @@ if (!existsSync(controlUiIndex)) {
   process.exit(1);
 }
 
-// Copy workspace templates (needed by gateway for agent workspace init)
+// Workspace/agent templates (HEARTBEAT.md etc.) live in docs/reference/templates;
+// the retired src/agents/templates tree is no longer resolved by the runtime.
+const TEMPLATES = "docs/reference/templates";
 const tmplSrc = path.join(PROJECT_ROOT, TEMPLATES);
 const tmplDst = path.join(STAGING_DIR, TEMPLATES);
 if (existsSync(tmplSrc)) {
@@ -69,17 +84,6 @@ if (existsSync(tmplSrc)) {
   console.log(`  ✓ ${TEMPLATES}`);
 } else {
   console.warn(`  ⚠ ${TEMPLATES} not found — gateway may fail to create workspaces`);
-}
-
-// Copy agent templates (HEARTBEAT.md etc., new in 2026.5.27)
-const agentTmplSrc = path.join(PROJECT_ROOT, AGENT_TEMPLATES);
-const agentTmplDst = path.join(STAGING_DIR, AGENT_TEMPLATES);
-if (existsSync(agentTmplSrc)) {
-  mkdirSync(path.dirname(agentTmplDst), { recursive: true });
-  cpSync(agentTmplSrc, agentTmplDst, { recursive: true, force: true });
-  console.log(`  ✓ ${AGENT_TEMPLATES}`);
-} else {
-  console.warn(`  ⚠ ${AGENT_TEMPLATES} not found`);
 }
 
 // ── 2. Strip devDependencies from package.json (npm install --omit=dev) ──

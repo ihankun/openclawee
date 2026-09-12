@@ -426,7 +426,16 @@ function loadingPageURL() {
 // ============================================================================
 
 function resolveNodeBinary() {
-  // System Node.js first (user's v24.8.0 — matches their working setup)
+  // A packaged app ships the runtime it was built and tested against, so the
+  // bundled Node wins there: the user's system Node may be absent or an
+  // unsupported release (the Gateway only accepts >=24.16.0 <25 or >=26.1.0).
+  const bundledPath = isWindows
+    ? path.join(process.resourcesPath, "node", "node.exe")
+    : path.join(process.resourcesPath, "node", "bin", "node");
+  if (!isDevelopment && fs.existsSync(bundledPath)) return bundledPath;
+
+  // Development uses the developer's own Node (bundled node only exists after
+  // `pnpm electron:build`); openclaw.mjs validates the release itself.
   const systemCandidates = [
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",
@@ -464,10 +473,7 @@ function resolveNodeBinary() {
     if (fs.existsSync(c)) return c;
   }
 
-  // Fallback: bundled Node.js
-  const bundledPath = isWindows
-    ? path.join(process.resourcesPath, "node", "node.exe")
-    : path.join(process.resourcesPath, "node", "bin", "node");
+  // Fallback: bundled Node.js (dev checkout that has not downloaded one yet).
   if (fs.existsSync(bundledPath)) return bundledPath;
 
   // Last resort: PATH
